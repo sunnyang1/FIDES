@@ -34,7 +34,7 @@ Rankings are compared with tie-aware Spearman.
 | held-out only | **0.876** |
 | public + held-out (what the loop uses) | **0.889** — gate PASS |
 
-![calibration chart](exp_p3_chart.png)
+![calibration chart](exp_p3_chart.svg)
 
 Best-candidate selection:
 
@@ -85,4 +85,4 @@ from 2×-worse-than-optimal to optimal.
 
 - `experiments/exp_p3_calibration.py` — reusable calibration harness
 - `experiments/exp_p3_calibration.json` — full per-candidate data
-- `experiments/exp_p3_chart.png` — score-vs-truth curves
+- `experiments/exp_p3_chart.svg` — score-vs-truth curves
