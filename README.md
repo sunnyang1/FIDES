@@ -120,7 +120,9 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
 
 ## Verification
 
-1881 tests (86% coverage) on the registry core; **81 governance tests** (`tests/test_maat_governance.py`, `tests/test_governed_evolution.py`, `tests/test_phase2_artifacts.py`, `tests/test_phase3_code_gates.py`, `tests/test_phase3_code_engine.py`) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback — plus Phase 3 end-to-end coverage: sandbox confinement (import allowlist, blocked builtins, sys.modules purge, resource caps, timeout kills, protocol-spoof defence), live calibration through the sandbox, pre-execution constitution blocks with zero sandbox runs, held-out name-cheater exposure, Pareto spurious-escalation rejection, hash-chained audit verification — plus TLA⁺ specs and Coq/Iris proof skeletons.
+**114 tests, all green** (`tests/test_maat_governance.py` 12, `tests/test_governed_evolution.py` 9, `tests/test_phase2_artifacts.py` 32, `tests/test_phase3_code_gates.py` 12, `tests/test_phase3_code_engine.py` 49) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback — plus Phase 3 end-to-end coverage: sandbox confinement (import allowlist, blocked builtins, sys.modules purge, resource caps, timeout kills, protocol-spoof defence, source-size cap, no silent RLIMIT downgrade), live calibration through the sandbox, pre-execution constitution blocks with zero sandbox runs, held-out name-cheater exposure, Pareto spurious-escalation rejection, probe-sufficiency standard (S1–S3 incl. crafted adversarial probes), executed Ed25519 multi-signoff governance (distinct signers, separation of duties, wrong-domain rejection), frozen commit–reveal seals (source-swap impostor, bench rotation), thread-binding, telemetry-free rejection, hash-chained audit verification against the anchored record — plus TLA⁺ specs and Coq/Iris proof skeletons.
+
+**Claims vs maturity** (post adversarial review, `docs/` review report): "hash-anchored" and "multi-party-signed" are *executed* — every acceptance event is appended to a versioned AnchorChain with Ed25519 approvals bound to {candidate content, scorecard fingerprint, bench commitment, engine identity}, verified before reveal; auto_accept on medium risk is banned by routing, not by documentation. ρ calibration is a *sampling-sufficiency statistic*; external validity is established separately via `calibrate_against_history` on harvested EventChain traces. The calibration record and diff metadata are self-declared but hash-bound: a swapped record or doctored diff breaks `check_calibration` / `CodeDiff.from_source` consistency checks.
 
 ## Roadmap
 
@@ -128,7 +130,7 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
 |---|---|---|
 | **1 — Governed contract evolution** | Anchor tournament loop (this README's centerpiece); constitution; fork-rollback; budget escalation | ✅ `feat/phase1-governed-evolution` |
 | **2 — Artifact-level evolution** | Task-trace replay scenario sets; commit–reveal held-out bench (anti-overfitting, DGM lesson); PlannerSpec artifacts in the same tournament loop; diff-risk × reputation acceptance routing (M4: auto-accept/single-reviewer/board, constitutional → board multi-signoff always); per-lineage budgets + EWMA trust | ✅ `feat/phase2-artifact-evolution` |
-| **3 — Code-level self-modification** | Confined runtime (`evolution/sandbox.py`): CPython subprocess, import allowlist + sys.modules purge + blocked builtins, RLIMIT_AS/CPU/NPROC + wall-clock timeout, outcome-only JSON exit channel. Code engine (`evolution/code_engine.py`): constitution gates (I1–I3) fire pre-execution; evaluator-side requirement model (the DGM marker game is structurally impossible); commit–reveal held-out; strict Pareto dominance (misses × spurious); risk × trust routing with code-level auto-accept ban on medium risk; hash-chained anchored audit. Design doc: `docs/phase3_design.md` | ✅ on `feat/phase2-artifact-evolution` |
+| **3 — Code-level self-modification** | Confined runtime (`evolution/sandbox.py`): CPython subprocess, import allowlist + sys.modules purge + blocked builtins, RLIMIT_AS/CPU/NPROC + wall-clock timeout + source-size cap (no silent downgrade), outcome-only JSON exit channel. Code engine (`evolution/code_engine.py`): constitution gates (I1–I3) fire pre-execution; evaluator-side requirement model (the DGM marker game is structurally impossible); commit–reveal held-out with frozen seals (source-swap impostor + bench rotation detected); probe-sufficiency standard S1–S3 with crafted adversarial probes; strict Pareto dominance with a 100 ms latency-veto axis; risk × trust routing with code-level auto-accept ban on medium risk and trust-floor blend cap; executed Ed25519 approvals (board multi-signoff, distinct signers, separation of duties) verified before reveal; hash-chained anchored audit. Design doc: `docs/phase3_design.md` — hardened post adversarial review (all C/H/M/L findings closed) | ✅ on `feat/phase2-artifact-evolution` |
 
 ## Evidence chain (live runs)
 
@@ -137,7 +139,7 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
 | **P2** real-trace evolution | does proxy gain appear against a held-out dispute? | 83% of public-clean candidates failed held-out (cf. KernelBench 73.8%); circuit-breaker/threshold coupling constitutionalised |
 | **P3** score calibration | does the replay score rank true quality? | ρ 0.354 public-only → **0.889** with held-out; gate ρ≥0.6 PASS |
 | **P4** delegation under fire | can reputation unlock speed without opening the door? | auto-accept live at trust 0.920; red-team cheater downgraded + rejected; post-attack honest tie rejected; bench-lifecycle bug found & fixed |
-| **P5** code evolution drill | does the full Phase 3 pipeline hold under attack, in the real sandbox? | 7 generations: honest fix accepted; over-eager / never-escalate / name-cheater all rejected by dominance; evaluator-namespace + unsandboxed attacks blocked **pre-execution with zero sandbox runs**; live calibration ρ=0.955; audit chain intact (`experiments/exp_p5_code_evolution.*`) |
+| **P5** code evolution drill | does the full Phase 3 pipeline hold under attack, in the real sandbox? | 9 generations: honest fix accepted under executed board multi-signoff; over-eager / never-escalate / name-cheater / honest-tie rejected by dominance; evaluator-namespace + unsandboxed attacks blocked **pre-execution with zero sandbox runs**; boundary-specialist (escalate only at loops≥4) rejected via the probe-sufficiency standard; live calibration ρ=0.955; no held-out telemetry leaked in rejections; audit chain intact (`experiments/exp_p5_code_evolution.*`) |
 
 ## Research Positioning
 
@@ -152,7 +154,7 @@ adl_lite/            # Core package: models, consensus, ontology, EAL, …
 ├── evolution/       # Phase 1: anchor tournament · Phase 2: artifact evolution
 │                    # Phase 3: sandbox + code evolution engine (I1–I5)
 experiments/         # E1–E35 registered experiments
-tests/               # 1881 core tests + governance suites
+tests/               # 114 governance tests (phases 1–3 + maat)
 specs/  formal/      # TLA⁺ specs, Coq/Iris skeletons
 dashboard/           # Multi-agent management UI
 docs/                # Papers, runbooks, design docs
