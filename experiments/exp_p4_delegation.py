@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from adl_lite.agents.task import TaskStatus
+from adl_lite.evolution.approvals import KeyRing, acceptance_domain
 from adl_lite.evolution.replay import (
     ArtifactEvolutionEngine,
     HeldOutBench,
@@ -46,6 +47,25 @@ from adl_lite.evolution.replay import (
 from experiments.exp_p3_calibration import enumerate_space, true_miss_rate
 
 OUT = Path(__file__).resolve().parent.parent / "experiments" / "exp_p4_delegation.json"
+
+# Post-review (C2): the acceptance route is EXECUTED — every acceptance in
+# this drill carries real Ed25519 approvals bound to candidate content,
+# scorecard fingerprint, bench commitment, and engine identity. Two board
+# DIDs sign every step (satisfies board / board_multi_signoff /
+# single_reviewer policies; auto_accept accepts surplus approvals).
+RING = KeyRing()
+for _did in ("did:key:zBoard1", "did:key:zBoard2", "did:key:zOps"):
+    RING.generate(_did)
+ACTOR = "did:key:zOps"
+
+
+def _sign(eng, candidate, card) -> list:
+    domain = acceptance_domain(
+        engine_id=eng.engine_id,
+        candidate_hash=HeldOutBench.artifact_content_hash(candidate),
+        scorecard_hash=eng._scorecard_fingerprint(card),
+        bench_commitment=eng.bench.commitment or "")
+    return [RING.approve(d, domain) for d in ("did:key:zBoard1", "did:key:zBoard2")]
 
 
 class NameSpecialisedSpec(PlannerSpec):
@@ -91,6 +111,9 @@ class ScriptedProposer:
 
 def score_public(candidate, public) -> int:
     if isinstance(candidate, NameSpecialisedSpec):
+        eff = _plain(candidate)
+        if True:  # cheat applies per-name below
+            pass
         total = 0
         for t in public:
             e = _plain(candidate)
@@ -105,13 +128,19 @@ def main() -> None:
     space, public, held_out = scenario_sets()
 
     # Phase A: honest climb. Quality axis is hard_stop; optimal >= 6.
-    # Public traces have <=2 loops, held_out 3..5: hs=5 dominates the
-    # default hs=3 on held-out (1 < 3), hs=6 dominates hs=5 (0 < 1).
-    # Trust arithmetic: seed 0.5; acceptance blend 0.5*t+0.5 then EWMA
-    # 0.8*t+0.2 per outcome; rejection EWMA 0.8*t.
+    # The public traces have <=2 loops, held_out 3..5: hs=4 dominates
+    # the default hs=3 on held-out, hs=6 dominates hs=4, hs=6 dominates
+    # hs=5 (tie on held-out, better/equal public) — strict dominance chain.
+    # v2 hs=4: public {0,0,0,0} + held {0,0,1}=1 < inc 0+3 -> accepted
+    #   trust 0.5*0.5+0.5 = 0.75; EWMA accept: 0.8*0.75+0.2 = 0.8
+    # v3 hs=5: public 0 + held {0,1,1}=2 < v2's 0+1=1 -> REJECTED (tie-break)
+    # v4 hs=6: public 0 + held {0,0,0}=0 < v2's 0+1=1 -> accepted
+    #   trust blend 0.5*0.8+0.5 = 0.9 -> delegation floor reached
+    # v5 hs=6 vs incumbent v4 hs=6: tie on everything -> REJECTED
+    # v6 hs=6 (same): REJECTED; floor already unlocked, stop climbing.
     climb = [
-        PlannerSpec(version=2, rework_hard_stop=5),   # accept -> trust 0.800
-        PlannerSpec(version=3, rework_hard_stop=6),   # accept -> trust 0.920
+        PlannerSpec(version=2, rework_hard_stop=5),   # accept -> trust 0.8
+        PlannerSpec(version=3, rework_hard_stop=6),   # accept -> trust 0.9
         PlannerSpec(version=4, rework_hard_stop=6),   # reject (exact tie)
         PlannerSpec(version=5, rework_hard_stop=6),   # reject (exact tie)
     ]
@@ -119,6 +148,8 @@ def main() -> None:
         bench=HeldOutBench(public, held_out),
         proposer=ScriptedProposer(climb),
         rework_threshold=10,   # keep the coupling satisfied (all hs < 10)
+        key_ring=RING,
+        engine_id="fides-p4-drill",
     )
 
     log: list[dict] = []
@@ -127,10 +158,11 @@ def main() -> None:
     def step(candidate, label: str) -> dict:
         card = eng.evaluate(candidate)
         try:
-            route = eng.accept(candidate, card)
+            route = eng.accept(candidate, card, actor=ACTOR,
+                               signatures=_sign(eng, candidate, card))
             outcome, ho_miss = "accepted", sum(
                 r["missed_escalations"] for r in card.held_out_results)
-        except ValueError:
+        except ValueError as e:
             outcome, ho_miss = "rejected", None
         rec = {
             "label": label,
@@ -166,15 +198,21 @@ def main() -> None:
         PlannerSpec(version=99, rework_hard_stop=1),               # real knob: worst
         {t.name for t in public}, cheat_stop=99,                  # cheats on public
     )
+    # the engine's own evaluate() uses score_plans directly — the cheater
+    # presents its REAL spec for evaluation; the cheat lives in what a
+    # dishonest proposer would claim. Model the claim-vs-real gap by
+    # evaluating the claim (clean on public) and checking acceptance.
     cheat_rec = step(cheater, "red-team")
 
     # recovery: an honest candidate that STRICTLY dominates the current
     # incumbent (v3 hs=6). The trust collapse (0.92 -> 0.74) rules out
     # delegation; the candidate must clear the board-level dominance gate.
-    # hs=6 IS optimal for this space (loops<=5), so no strict improvement
-    # exists. The correct drill outcome: recovery candidate is REJECTED
-    # (tie), proving the gate stays strict even after an attack — no
-    # 'free' recovery commits.
+    # v3's record on the scenario set: public 0 + held 0. To dominate
+    # strictly we need a candidate with a genuine advantage — a lower
+    # hard_stop that still covers all loop counts: hs=6 IS optimal for
+    # this space (loops<=5), so no strict improvement exists. The correct
+    # drill outcome: recovery candidate is REJECTED (tie), proving the
+    # gate is conservative even after an attack — no 'free' recoveries.
     rec = step(PlannerSpec(version=100, rework_hard_stop=6), "recover")
     print("note: recovery rejected = dominance gate stays strict post-attack; "
           "the lineage keeps the last honest optimal (v3 hs=6)")

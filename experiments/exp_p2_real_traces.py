@@ -152,9 +152,7 @@ def main() -> None:
         print(f"  {t.name:14s} steps={n_steps} rejects={n_rej} db_ref={t.db_ref}")
 
     # sanity: default spec is clean on public, misses the held-out dispute
-    eng_probe = ArtifactEvolutionEngine(
-        bench=HeldOutBench(public, held_out), rework_threshold=5
-    )
+    eng_probe = ArtifactEvolutionEngine(bench=HeldOutBench(public, held_out), rework_threshold=5)
     inc = eng_probe.lineage[-1].artifact
     pub_scores = eng_probe.bench.evaluate(inc, public)
     ho_scores = eng_probe.bench.evaluate(inc)
@@ -163,9 +161,26 @@ def main() -> None:
           f"held_out_missed={sum(r['missed_escalations'] for r in ho_scores)}")
 
     # ---- the real run ---------------------------------------------------
-    eng = ArtifactEvolutionEngine(
-        bench=HeldOutBench(public, held_out), rework_threshold=5
-    )
+    # Post-review (C2): governance is executed — approvals are real Ed25519
+    # signatures bound to {candidate content, scorecard fingerprint, bench
+    # commitment, engine identity}; two board DIDs sign every step.
+    from adl_lite.evolution.approvals import KeyRing, acceptance_domain
+    ring = KeyRing()
+    for _did in ("did:key:zBoard1", "did:key:zBoard2", "did:key:zOps"):
+        ring.generate(_did)
+    actor = "did:key:zOps"
+
+    def _sign(eng, candidate, card) -> list:
+        domain = acceptance_domain(
+            engine_id=eng.engine_id,
+            candidate_hash=HeldOutBench.artifact_content_hash(candidate),
+            scorecard_hash=eng._scorecard_fingerprint(card),
+            bench_commitment=eng.bench.commitment or "")
+        return [ring.approve(d, domain) for d in ("did:key:zBoard1", "did:key:zBoard2")]
+
+    eng = ArtifactEvolutionEngine(bench=HeldOutBench(public, held_out),
+                                  rework_threshold=5,
+                                  key_ring=ring, engine_id="fides-p2-drill")
     generations: list[dict] = []
     accepted = False
     MAX_GEN = 12
@@ -177,7 +192,8 @@ def main() -> None:
         pub_miss = sum(r["missed_escalations"] for r in card.public_results)
         pub_clean = card.clean_public
         try:
-            route = eng.accept(candidate, card)
+            route = eng.accept(candidate, card, actor=actor,
+                               signatures=_sign(eng, candidate, card))
             outcome = "accepted"
             ho_miss = sum(r["missed_escalations"] for r in card.held_out_results)
         except ValueError:
@@ -200,10 +216,11 @@ def main() -> None:
             },
             "public_missed": pub_miss,
             "held_out_missed": ho_miss,
+            "route": generations[-1]["route"] if outcome == "rejected" and generations else None,
             "outcome": outcome,
             "trust_after": trust,
         })
-        # recover route/risk from audit log (authoritative)
+        # recover route from audit log (authoritative)
         generations[-1]["route"] = eng.audit_log[-1]["route"]
         generations[-1]["risk"] = eng.audit_log[-1]["risk"]
         print(f"gen {gen:2d} v{candidate.version} "
