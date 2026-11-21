@@ -60,6 +60,25 @@ route = eng.accept(cand, card)                # held-out revealed HERE, post-com
 - **Diff-risk × reputation routing (M4)** — low-risk diffs from high-trust lineages route to `auto_accept`; medium risk or lower trust to `single_reviewer`; anything else to `board`. Constitutional changes (`name`) always require board multi-signoff. Delegation never waives the dominance gate — a delegated route that fails strict dominance is downgraded to `board`.
 - **Lineage budgets + EWMA trust** — every accepted generation spends quota; trust updates deterministically from outcomes; exhausted lineages cannot propose.
 
+## Experiments (governance evidence)
+
+| Experiment | Finding |
+|---|---|
+| P2 real-trace run (`exp_p2_real_traces.py`) | 83% proxy-gain rate reproduced in miniature; trust braked every decision to board; circuit breaker caps observable rework loops at threshold−1 (now a constitution coupling) |
+| P3 calibration (`exp_p3_calibration.py`) | Replay rankings vs exhaustive ground truth: public-only ρ=0.353 (picks 2×-suboptimal), with held-out ρ=0.889 — gate (ρ≥0.6) PASS; dominance gate (not the bench) is what rejects cheaters |
+| P4 delegation drill (`exp_p4_delegation.py`) | First live `single_reviewer` acceptance (trust 0.920); red-team cheater downgraded auto_accept→board and rejected; attack cost trust 0.92→0.736 (auto-revocation); bench-lifecycle bug found & fixed |
+
+## Phase 3 — Code-Level Gates (constitution shipped)
+
+`adl_lite/evolution/code_gates.py` makes the DGM move **structurally impossible**:
+
+- **Evaluator namespace is permanently outside the mutation space** (`DEFAULT_EVALUATOR_NAMESPACE` — replay, engine, maat gates/anchor, task, consensus, crdt). Any candidate diff touching it is rejected pre-evaluation; no trust, budget, or route can waive this. Namespace amendment is itself constitutional.
+- **Sandboxed execution is a hard precondition**; unsandboxed candidates never execute.
+- **Calibration precedes trust**: a score function needs a passing P3 calibration record (ρ ≥ 0.6) before it gates anything.
+- **Code-level auto_accept is banned on medium risk** regardless of trust — the asymmetry vs artifact evolution.
+
+Full design: `docs/phase3_design.md`.
+
 ## Capabilities
 
 **Event-first document model** — four layers (L1 YAML identity → L2 Markdown narrative → L3 typed relations → L4 actions); status/confidence derived via CRDT semantics that never regress.
@@ -122,22 +141,22 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
                                               │
                      ┌────────────────────────┼────────────────────────┐
                      ▼                        ▼                        ▼
-               agents/ (identity,      maat/ (gates, locks,     evolution/ (Phase 1:
-               task lifecycle)          anchored contract)       governed anchor loop)
+               agents/ (identity,      maat/ (gates, locks,     evolution/ (Phases 1–3:
+               task lifecycle)          anchored contract)       governed self-evolution)
                      │                        │                        │
                      └──────────► REST API / CLI / MCP ◄──────────────┘
 ```
 
 | FIDES layer | Question it answers |
 |---|---|
-| `evolution/` | *May* this change govern? (Phase 1: the contract itself; Phase 2: L1 artifacts) |
+| `evolution/` | *May* this change govern? (Phase 1: the contract · Phase 2: L1 artifacts · Phase 3: code, constitution-gated) |
 | `maat/` | *Is* this handoff permitted right now? |
 | EventChain + EAL | *What happened, provably?* |
 | CRDT + fork | *How do we converge and how do we roll back?* |
 
 ## Verification
 
-1881 tests (86% coverage) on the registry core; **43 governance tests** (`tests/test_maat_governance.py`, `tests/test_governed_evolution.py`, `tests/test_phase2_artifacts.py`) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback, held-out seal tampering, delegation-without-dominance downgrade — plus TLA⁺ specs and Coq/Iris proof skeletons.
+1881 tests (86% coverage) on the registry core; **57 governance tests** (`tests/test_maat_governance.py`, `tests/test_governed_evolution.py`, `tests/test_phase2_artifacts.py`, `tests/test_phase3_code_gates.py`) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback — plus TLA⁺ specs and Coq/Iris proof skeletons.
 
 ## Roadmap
 
@@ -145,7 +164,7 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
 |---|---|---|
 | **1 — Governed contract evolution** | Anchor tournament loop (this README's centerpiece); constitution; fork-rollback; budget escalation | ✅ `feat/phase1-governed-evolution` |
 | **2 — Artifact-level evolution** | Task-trace replay scenario sets; commit–reveal held-out bench (anti-overfitting, DGM lesson); PlannerSpec artifacts in the same tournament loop; diff-risk × reputation acceptance routing (M4: auto-accept/single-reviewer/board, constitutional → board multi-signoff always); per-lineage budgets + EWMA trust | ✅ `feat/phase2-artifact-evolution` |
-| **3 — Code-level self-modification** | Sandboxed execution of evolved runtimes; EAL behavioral replay as acceptance evidence; tiered authorization (evaluator namespace permanently human + multi-admin DID) | ⏳ gated on Phase 2 empirical proxy-gain rates |
+| **3 — Code-level self-modification** | Constitution gates shipped (`evolution/code_gates.py`): evaluator namespace permanently outside the mutation space (DGM log-marker defence), sandboxed execution precondition, P3 calibration precondition (ρ≥0.6), diff risk-tiering with code-level auto-accept ban on medium risk. Design doc: `docs/phase3_design.md` | 🔶 constitution gates on `feat/phase2-artifact-evolution`; sandbox substrate pending |
 
 ## Research Positioning
 
@@ -157,12 +176,12 @@ FIDES occupies the intersection current systems leave empty: DGM/Hyperagents/Alp
 adl_lite/            # Core package: models, consensus, ontology, EAL, …
 ├── agents/          # Agent identity + task lifecycle (EventChains)
 ├── maat/            # Deterministic seven-gate handoff governance
-├── evolution/       # Phase 1: anchor tournament · Phase 2: artifact evolution
-experiments/         # E1–E35 registered experiments
+├── evolution/       # Phase 1: anchor tournament · Phase 2: artifact evolution · Phase 3: code gates
+experiments/         # E1–E35 registered experiments + P2/P3/P4 governance evidence
 tests/               # 1881 core tests + governance suites
 specs/  formal/      # TLA⁺ specs, Coq/Iris proof skeletons
 dashboard/           # Multi-agent management UI
-docs/                # Papers, runbooks, design docs
+docs/                # Papers, runbooks, design docs (incl. phase3_design.md)
 ```
 
 ## Contributing

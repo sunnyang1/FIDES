@@ -6,8 +6,13 @@ deterministic task scenarios → score → accept under governance
 
 Phase 2 — Artifact evolution: bring L1 artifacts (PlannerSpec) into the
 same loop, with a commit–reveal held-out bench, diff-risk × reputation
-acceptance routing, and per-lineage budgets. No LLM is in the evaluation
-or acceptance path.
+acceptance routing, and per-lineage budgets.
+
+Phase 3 — Code-level gates: evaluator namespace permanently outside the
+mutation space, sandboxed execution precondition, P3-calibrated scoring
+precondition, code diff risk-tiering.
+
+No LLM is in the evaluation or acceptance path.
 """
 
 from .engine import (  # noqa: F401
@@ -30,6 +35,12 @@ from .replay import (  # noqa: F401
     sample_traces,
     score_plans,
 )
+from .code_gates import (  # noqa: F401
+    DEFAULT_EVALUATOR_NAMESPACE,
+    CalibrationRecord,
+    CodeDiff,
+    Phase3Gate,
+)
 
 __all__ = [
     "CandidateScorecard",
@@ -48,4 +59,8 @@ __all__ = [
     "diff_risk",
     "sample_traces",
     "score_plans",
+    "DEFAULT_EVALUATOR_NAMESPACE",
+    "CalibrationRecord",
+    "CodeDiff",
+    "Phase3Gate",
 ]
