@@ -139,6 +139,25 @@ class ADLUnsupportedDIDMethodError(ADLTrustValidationError):
 
 
 # ---------------------------------------------------------------------------
+# Maat governance errors
+# ---------------------------------------------------------------------------
+
+
+class GateViolation(ADLConsensusError):
+    """Raised when a Maat deterministic gate blocks a handoff.
+
+    The gate verdict (gate name + reason) is attached so callers can log or
+    surface the deterministic audit record. No event is appended to the chain
+    when a gate blocks — the chain only records what actually happened.
+    """
+
+    def __init__(self, gate: str, reason: str) -> None:
+        super().__init__(f"[gate:{gate}] {reason}")
+        self.gate = gate
+        self.reason = reason
+
+
+# ---------------------------------------------------------------------------
 # Re-export aliases for backward compatibility
 # ---------------------------------------------------------------------------
 
