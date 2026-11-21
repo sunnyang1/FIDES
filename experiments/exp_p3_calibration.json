@@ -1,0 +1,139 @@
+{
+  "n_candidates": 14,
+  "n_cheaters": 3,
+  "trace_space_size": 24,
+  "spearman": {
+    "public_only_vs_truth": 0.3535,
+    "heldout_only_vs_truth": 0.8763,
+    "public_plus_heldout_vs_truth": 0.8888
+  },
+  "gate_proposal": "phase3_unlock_requires_combined_rho >= 0.6",
+  "gate_pass": true,
+  "cheater_analysis": {
+    "cheater_true_miss_rate": [
+      0.4167,
+      0.4167,
+      0.4167
+    ],
+    "cheater_public_rank_of": [
+      "11/14",
+      "12/14",
+      "13/14"
+    ],
+    "cheater_combined_rank_of": [
+      "11/14",
+      "12/14",
+      "13/14"
+    ],
+    "dominance_gate_if_public_only": [
+      "rejected(tie/no-strict-dominance)",
+      "rejected(tie/no-strict-dominance)",
+      "rejected(tie/no-strict-dominance)"
+    ],
+    "dominance_gate_if_combined": [
+      "rejected(tie/no-strict-dominance)",
+      "rejected(tie/no-strict-dominance)",
+      "rejected(tie/no-strict-dominance)"
+    ]
+  },
+  "best_candidate_by": {
+    "public_only": {
+      "name": "sweep_hs2",
+      "true_miss_rate": 0.3333
+    },
+    "combined": {
+      "name": "sweep_hs6",
+      "true_miss_rate": 0.0
+    },
+    "ground_truth": {
+      "name": "sweep_hs6",
+      "true_miss_rate": 0.0
+    }
+  },
+  "per_candidate": [
+    {
+      "name": "sweep_hs1",
+      "true_miss_rate": 0.4167,
+      "public_misses": 1,
+      "held_out_misses": 3
+    },
+    {
+      "name": "sweep_hs2",
+      "true_miss_rate": 0.3333,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "sweep_hs3",
+      "true_miss_rate": 0.25,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "sweep_hs4",
+      "true_miss_rate": 0.1667,
+      "public_misses": 0,
+      "held_out_misses": 2
+    },
+    {
+      "name": "sweep_hs5",
+      "true_miss_rate": 0.0833,
+      "held_out_misses": 1,
+      "public_misses": 0
+    },
+    {
+      "name": "sweep_hs6",
+      "true_miss_rate": 0.0,
+      "public_misses": 0,
+      "held_out_misses": 0
+    },
+    {
+      "name": "sweep_hs7",
+      "true_miss_rate": 0.0,
+      "public_misses": 0,
+      "held_out_misses": 0
+    },
+    {
+      "name": "sweep_hs8",
+      "true_miss_rate": 0.0,
+      "public_misses": 0,
+      "held_out_misses": 0
+    },
+    {
+      "name": "weights_v21",
+      "true_miss_rate": 0.25,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "weights_v22",
+      "true_miss_rate": 0.25,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "weights_v23",
+      "true_miss_rate": 0.25,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "cheater_hs1_cheat99_0",
+      "true_miss_rate": 0.4167,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "cheater_hs1_cheat99_1",
+      "true_miss_rate": 0.4167,
+      "public_misses": 0,
+      "held_out_misses": 3
+    },
+    {
+      "name": "cheater_hs1_cheat99_2",
+      "true_miss_rate": 0.4167,
+      "public_misses": 0,
+      "held_out_misses": 3
+    }
+  ]
+}
