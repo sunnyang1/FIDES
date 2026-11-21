@@ -1,6 +1,6 @@
 # FIDES Phase 3 — Code-Level Self-Modification: Design Document
 
-**Status:** design + constitution gates implemented (`adl_lite/evolution/code_gates.py`, 12 tests) · **Date:** 2026-11-22
+**Status:** FULLY IMPLEMENTED — sandbox + code engine + 24 engine tests + P5 live drill (`adl_lite/evolution/sandbox.py`, `adl_lite/evolution/code_engine.py`, `experiments/exp_p5_code_evolution.py`) · **Date:** 2026-11-22
 **Governing evidence:** P2 real-trace run (83% proxy-gain intercepted) · P3 calibration (ρ=0.889, gate PASS) · P4 delegation drill (dominance holds under delegation; bench lifecycle fixed)
 
 ## 1. Problem Statement
@@ -57,7 +57,7 @@ Note the asymmetry with artifact evolution: code-level **auto_accept is unavaila
 even for medium risk** regardless of trust. Only external, sandboxed plugins can
 ever auto-accept — and only after their score function is calibrated (I3).
 
-## 5. Execution Architecture (target, not yet implemented)
+## 5. Execution Architecture
 
 ```
 candidate code diff
@@ -98,14 +98,49 @@ live in a namespace the mutated code cannot reach.
   artifacts until separately promoted by a human-operated deployment gate. Evolution
   governance ≠ deployment governance.
 
-## 8. Open Questions for Implementation
+## 8. Open Questions for Implementation — Status
 
-1. **Sandbox substrate** — CPython subprocess with resource limits vs WASM runtime
-   vs gVisor/Firecracker microVM. Trade-off: isolation strength vs probe fidelity.
-   WASM gives deterministic replay cheaply; microVMs give the strongest boundary.
-2. **Probe definition language** — how behavioural probes are authored, versioned,
-   and commit-revealed. Reuse `TaskTrace` shape or define a `CodeProbe`?
-3. **Code score functions** — what replaces missed-escalation counts? Candidate:
-   probe-pass rates weighted by probe difficulty, with P3 calibration as the gate.
-4. **Amendment mechanics** — the on-chain representation of namespace changes
-   (constitutional amendment event type).
+1. **Sandbox substrate** — **RESOLVED: CPython subprocess** (`evolution/sandbox.py`).
+   Import allowlist via meta-path finder + full sys.modules purge of non-allowlisted
+   tops (harness keeps its own references), blocked builtins (open/exec/eval/
+   compile/input/…), RLIMIT_AS/RLIMIT_CPU/RLIMIT_NPROC=0 set both pre-exec and
+   in-harness, parent wall-clock timeout, outcome-only JSON exit channel with
+   candidate stdout sink-swapped (protocol spoofing is tested against). WASM/microVM
+   remain upgrade paths documented in the code; subprocess isolation is *the
+   minimal viable substrate this design asked for*, not the final word.
+2. **Probe definition language** — **RESOLVED by reuse**: probes are `TaskTrace`
+   dicts (same shape Phase 2 already seals); `CodeBench` mirrors `HeldOutBench`
+   commit–reveal semantics with the candidate's version list sealed before any
+   evaluation.
+3. **Code score functions** — **RESOLVED for the planner domain**: strict Pareto
+   over (missed escalations, spurious escalations), both computed *evaluator-side*
+   from the evaluator's own requirement model (escalation required at ≥ eval hard
+   stop with non-cancelled close). The candidate cannot self-report anything that
+   affects scoring — the DGM marker game is structurally impossible, not merely
+   detected. Calibration (I3) reuses the P3 exhaustive-enumeration protocol,
+   executed *through the sandbox itself* (`calibrate_scoring`): the live drill
+   measured ρ = 0.955 against gate 0.6.
+4. **Amendment mechanics** — **DEFERRED, documented**: namespace changes are a
+   constitutional amendment event type on the anchor chain. Deliberately not
+   built in Phase 3: accepting code must not imply any path to amending the
+   constitution that accepted it (self-reference guard). Tracked as future work;
+   until then the evaluator namespace is immutable in code.
+
+## 9. Implementation Status (final product)
+
+Shipped on `feat/phase2-artifact-evolution`, all tests green:
+
+- `evolution/sandbox.py` — confined runtime (I2) as above.
+- `evolution/code_engine.py` — `CodeCandidate` / `CodeDiff` risk tiering /
+  `CodeBench` commit–reveal / evaluator-side scoring / `CodeEvolutionEngine`
+  full pipeline: `Phase3Gate.check` → sandbox public probes → seal check →
+  reveal + sandbox held-out → strict Pareto dominance → `code_acceptance_route`
+  (I4: medium risk never auto-accepts) → delegation downgrade on non-dominance
+  → EWMA trust + budget + lineage blend → hash-chained anchored audit events
+  (`verify_audit_chain()`).
+- `tests/test_phase3_code_engine.py` — 24 tests incl. confinement suite and
+  zero-sandbox-run pre-execution blocks.
+- `experiments/exp_p5_code_evolution.py` — live 7-generation drill: honest fix
+  accepted; over-eager / never-escalate / name-cheater rejected; evaluator-
+  namespace and unsandboxed attacks blocked pre-execution; honest tie rejected
+  post-acceptance; ρ = 0.955 live calibration; audit chain intact.

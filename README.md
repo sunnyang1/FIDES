@@ -43,42 +43,6 @@ Design invariants that make this loop *governed* rather than merely *automated*:
 4. **Budget escalation** — a generation budget forces human escalation instead of unbounded self-modification.
 5. **Fork-rollback** — CRDT LUB semantics never regress, so reverting is forking from an ancestor; the detour stays in the lineage as evidence.
 
-## The Phase 2 Loop (Artifact Evolution)
-
-Phase 2 brings **L1 artifacts** (planner configs — `PlannerSpec`) into the same tournament, with replay-based evaluation and an anti-overfitting protocol:
-
-```python
-from adl_lite.evolution import ArtifactEvolutionEngine, HeldOutBench, PlannerSpec
-
-eng = ArtifactEvolutionEngine(bench=HeldOutBench(held_out=[...]))  # seal committed at init
-cand = eng.propose()                          # seeded neighborhood search over knobs
-card = eng.evaluate(cand)                     # public trace replay + commitment check
-route = eng.accept(cand, card)                # held-out revealed HERE, post-commitment
-```
-
-- **Commit–reveal held-out bench** — candidates are hash-sealed against the hidden scenario set *before* evaluation; the held-out is revealed only at acceptance time, so a proposer cannot tune to it (the DGM "read the test file" lesson).
-- **Diff-risk × reputation routing (M4)** — low-risk diffs from high-trust lineages route to `auto_accept`; medium risk or lower trust to `single_reviewer`; anything else to `board`. Constitutional changes (`name`) always require board multi-signoff. Delegation never waives the dominance gate — a delegated route that fails strict dominance is downgraded to `board`.
-- **Lineage budgets + EWMA trust** — every accepted generation spends quota; trust updates deterministically from outcomes; exhausted lineages cannot propose.
-
-## Experiments (governance evidence)
-
-| Experiment | Finding |
-|---|---|
-| P2 real-trace run (`exp_p2_real_traces.py`) | 83% proxy-gain rate reproduced in miniature; trust braked every decision to board; circuit breaker caps observable rework loops at threshold−1 (now a constitution coupling) |
-| P3 calibration (`exp_p3_calibration.py`) | Replay rankings vs exhaustive ground truth: public-only ρ=0.353 (picks 2×-suboptimal), with held-out ρ=0.889 — gate (ρ≥0.6) PASS; dominance gate (not the bench) is what rejects cheaters |
-| P4 delegation drill (`exp_p4_delegation.py`) | First live `single_reviewer` acceptance (trust 0.920); red-team cheater downgraded auto_accept→board and rejected; attack cost trust 0.92→0.736 (auto-revocation); bench-lifecycle bug found & fixed |
-
-## Phase 3 — Code-Level Gates (constitution shipped)
-
-`adl_lite/evolution/code_gates.py` makes the DGM move **structurally impossible**:
-
-- **Evaluator namespace is permanently outside the mutation space** (`DEFAULT_EVALUATOR_NAMESPACE` — replay, engine, maat gates/anchor, task, consensus, crdt). Any candidate diff touching it is rejected pre-evaluation; no trust, budget, or route can waive this. Namespace amendment is itself constitutional.
-- **Sandboxed execution is a hard precondition**; unsandboxed candidates never execute.
-- **Calibration precedes trust**: a score function needs a passing P3 calibration record (ρ ≥ 0.6) before it gates anything.
-- **Code-level auto_accept is banned on medium risk** regardless of trust — the asymmetry vs artifact evolution.
-
-Full design: `docs/phase3_design.md`.
-
 ## Capabilities
 
 **Event-first document model** — four layers (L1 YAML identity → L2 Markdown narrative → L3 typed relations → L4 actions); status/confidence derived via CRDT semantics that never regress.
@@ -141,22 +105,22 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
                                               │
                      ┌────────────────────────┼────────────────────────┐
                      ▼                        ▼                        ▼
-               agents/ (identity,      maat/ (gates, locks,     evolution/ (Phases 1–3:
-               task lifecycle)          anchored contract)       governed self-evolution)
+               agents/ (identity,      maat/ (gates, locks,     evolution/ (Phase 1:
+               task lifecycle)          anchored contract)       governed anchor loop)
                      │                        │                        │
                      └──────────► REST API / CLI / MCP ◄──────────────┘
 ```
 
 | FIDES layer | Question it answers |
 |---|---|
-| `evolution/` | *May* this change govern? (Phase 1: the contract · Phase 2: L1 artifacts · Phase 3: code, constitution-gated) |
+| `evolution/` | *May* this change govern? (Phase 1: the contract itself) |
 | `maat/` | *Is* this handoff permitted right now? |
 | EventChain + EAL | *What happened, provably?* |
 | CRDT + fork | *How do we converge and how do we roll back?* |
 
 ## Verification
 
-1881 tests (86% coverage) on the registry core; **57 governance tests** (`tests/test_maat_governance.py`, `tests/test_governed_evolution.py`, `tests/test_phase2_artifacts.py`, `tests/test_phase3_code_gates.py`) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback — plus TLA⁺ specs and Coq/Iris proof skeletons.
+1881 tests (86% coverage) on the registry core; **81 governance tests** (`tests/test_maat_governance.py`, `tests/test_governed_evolution.py`, `tests/test_phase2_artifacts.py`, `tests/test_phase3_code_gates.py`, `tests/test_phase3_code_engine.py`) covering the validation-lab poison suite — orphan minting, rework ping-pong, submit-by-non-holder, self-validation, resource contention, anchor tamper evidence, non-dominance rejection, fork-rollback — plus Phase 3 end-to-end coverage: sandbox confinement (import allowlist, blocked builtins, sys.modules purge, resource caps, timeout kills, protocol-spoof defence), live calibration through the sandbox, pre-execution constitution blocks with zero sandbox runs, held-out name-cheater exposure, Pareto spurious-escalation rejection, hash-chained audit verification — plus TLA⁺ specs and Coq/Iris proof skeletons.
 
 ## Roadmap
 
@@ -164,7 +128,16 @@ Markdown (L1–L4) → ADLParser → EventChain → ConsensusEngine → ADLMemor
 |---|---|---|
 | **1 — Governed contract evolution** | Anchor tournament loop (this README's centerpiece); constitution; fork-rollback; budget escalation | ✅ `feat/phase1-governed-evolution` |
 | **2 — Artifact-level evolution** | Task-trace replay scenario sets; commit–reveal held-out bench (anti-overfitting, DGM lesson); PlannerSpec artifacts in the same tournament loop; diff-risk × reputation acceptance routing (M4: auto-accept/single-reviewer/board, constitutional → board multi-signoff always); per-lineage budgets + EWMA trust | ✅ `feat/phase2-artifact-evolution` |
-| **3 — Code-level self-modification** | Constitution gates shipped (`evolution/code_gates.py`): evaluator namespace permanently outside the mutation space (DGM log-marker defence), sandboxed execution precondition, P3 calibration precondition (ρ≥0.6), diff risk-tiering with code-level auto-accept ban on medium risk. Design doc: `docs/phase3_design.md` | 🔶 constitution gates on `feat/phase2-artifact-evolution`; sandbox substrate pending |
+| **3 — Code-level self-modification** | Confined runtime (`evolution/sandbox.py`): CPython subprocess, import allowlist + sys.modules purge + blocked builtins, RLIMIT_AS/CPU/NPROC + wall-clock timeout, outcome-only JSON exit channel. Code engine (`evolution/code_engine.py`): constitution gates (I1–I3) fire pre-execution; evaluator-side requirement model (the DGM marker game is structurally impossible); commit–reveal held-out; strict Pareto dominance (misses × spurious); risk × trust routing with code-level auto-accept ban on medium risk; hash-chained anchored audit. Design doc: `docs/phase3_design.md` | ✅ on `feat/phase2-artifact-evolution` |
+
+## Evidence chain (live runs)
+
+| Drill | Question | Result |
+|---|---|---|
+| **P2** real-trace evolution | does proxy gain appear against a held-out dispute? | 83% of public-clean candidates failed held-out (cf. KernelBench 73.8%); circuit-breaker/threshold coupling constitutionalised |
+| **P3** score calibration | does the replay score rank true quality? | ρ 0.354 public-only → **0.889** with held-out; gate ρ≥0.6 PASS |
+| **P4** delegation under fire | can reputation unlock speed without opening the door? | auto-accept live at trust 0.920; red-team cheater downgraded + rejected; post-attack honest tie rejected; bench-lifecycle bug found & fixed |
+| **P5** code evolution drill | does the full Phase 3 pipeline hold under attack, in the real sandbox? | 7 generations: honest fix accepted; over-eager / never-escalate / name-cheater all rejected by dominance; evaluator-namespace + unsandboxed attacks blocked **pre-execution with zero sandbox runs**; live calibration ρ=0.955; audit chain intact (`experiments/exp_p5_code_evolution.*`) |
 
 ## Research Positioning
 
@@ -176,12 +149,13 @@ FIDES occupies the intersection current systems leave empty: DGM/Hyperagents/Alp
 adl_lite/            # Core package: models, consensus, ontology, EAL, …
 ├── agents/          # Agent identity + task lifecycle (EventChains)
 ├── maat/            # Deterministic seven-gate handoff governance
-├── evolution/       # Phase 1: anchor tournament · Phase 2: artifact evolution · Phase 3: code gates
-experiments/         # E1–E35 registered experiments + P2/P3/P4 governance evidence
+├── evolution/       # Phase 1: anchor tournament · Phase 2: artifact evolution
+│                    # Phase 3: sandbox + code evolution engine (I1–I5)
+experiments/         # E1–E35 registered experiments
 tests/               # 1881 core tests + governance suites
-specs/  formal/      # TLA⁺ specs, Coq/Iris proof skeletons
+specs/  formal/      # TLA⁺ specs, Coq/Iris skeletons
 dashboard/           # Multi-agent management UI
-docs/                # Papers, runbooks, design docs (incl. phase3_design.md)
+docs/                # Papers, runbooks, design docs
 ```
 
 ## Contributing
