@@ -170,9 +170,6 @@ def test_engine_evaluate_verifies_seal():
 
 def test_engine_full_acceptance_cycle():
     eng = _engine_with_hidden_dispute()
-    # n=1 tweak: rework_hard_stop 3 -> 2 (medium risk) — still misses the
-    # hidden trace; n=2: w_shared; n=3: w_rework; n=4: hard_stop 3->2...
-    # Directly craft the dominating candidate instead of walking the seed.
     candidate = PlannerSpec(version=2, rework_hard_stop=10)
     card = eng.evaluate(candidate)
     route = eng.accept(candidate, card)
@@ -180,7 +177,8 @@ def test_engine_full_acceptance_cycle():
     assert route == "board"
     assert card.dominates_incumbent
     assert eng.lineage[-1].artifact.version == 2
-    assert eng.bench.revealed
+    # bench resets for the next generation after acceptance (P4 drill fix)
+    assert not eng.bench.revealed
     # audit trail records the decision
     entry = eng.audit_log[-1]
     assert entry["outcome"] == "accepted" and entry["route"] == "board"
@@ -227,14 +225,40 @@ def test_delegation_never_waives_dominance_gate():
     assert eng.audit_log[-1]["route"] == "board"
 
 
-def test_double_accept_same_generation_blocked():
+def test_concurrent_second_accept_blocked():
+    """Two accept() calls for the same generation: the first consumes the
+    generation (lineage advances, bench resets); the second candidate ties
+    the new incumbent and is rejected by the dominance gate. Same security
+    property as the old double-reveal block, mechanism changed by the P4
+    lifecycle fix (bench now resets after acceptance)."""
     eng = _engine_with_hidden_dispute()
     candidate = PlannerSpec(version=2, rework_hard_stop=10)
     card = eng.evaluate(candidate)
     eng.accept(candidate, card)
-    card2 = eng.evaluate(PlannerSpec(version=3, rework_hard_stop=11))
-    with pytest.raises(ValueError, match="already revealed"):
-        eng.accept(PlannerSpec(version=3, rework_hard_stop=11), card2)
+    stale = PlannerSpec(version=3, rework_hard_stop=11)
+    # NOTE: the seal covers only (candidate VERSION, held-out names), not
+    # candidate content — content binding is the dominance gate's job.
+    card2 = eng.evaluate(stale)
+    with pytest.raises(ValueError, match="does not dominate"):
+        eng.accept(stale, card2)
+    assert eng.lineage[-1].artifact.version == 2  # lineage unmoved
+
+
+def test_bench_resets_after_acceptance_for_next_generation():
+    """P4 drill finding: after an accepted generation, the bench must reset
+    so the next generation can be evaluated and accepted. (Before the fix,
+    the bench stayed revealed and every subsequent accept was blocked.)"""
+    eng = _engine_with_hidden_dispute()
+    v2 = PlannerSpec(version=2, rework_hard_stop=10)
+    eng.accept(v2, eng.evaluate(v2))
+    assert eng.lineage[-1].artifact.version == 2
+    assert not eng.bench.revealed
+    v3 = PlannerSpec(version=3, rework_hard_stop=10, w_shared=2.0)
+    card3 = eng.evaluate(v3)
+    # v3 ties v2 on held-out (identical hard_stop), so dominance fails:
+    with pytest.raises(ValueError, match="does not dominate"):
+        eng.accept(v3, card3)
+    assert not eng.bench.revealed  # rejection also resets
 
 
 def test_constitutional_change_requires_multi_signoff():

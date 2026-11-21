@@ -182,7 +182,10 @@ def _hash(x: Any) -> str:
 
 @dataclass
 class HeldOutBench:
-    """Commit–reveal protocol for the hidden scenario set."""
+    """Commit–reveal protocol for the hidden scenario set.
+
+    Commitment scope: candidate VERSIONS + held-out trace names (not
+    candidate content). Content binding is the dominance gate's job."""
 
     public_traces: list[TaskTrace] = field(default_factory=sample_traces)
     held_out: list[TaskTrace] = field(default_factory=list)
@@ -460,6 +463,7 @@ class ArtifactEvolutionEngine:
         )
         new_lineage.generations = incumbent.generations
         self.lineage.append(new_lineage)
+        self.bench.revealed = False  # bench resets for the next generation
         self._commit_seal()
         return route
 
