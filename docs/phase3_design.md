@@ -1,7 +1,7 @@
 # FIDES Phase 3 — Code-Level Self-Modification: Design Document
 
-**Status:** FULLY IMPLEMENTED — sandbox + code engine + 24 engine tests + P5 live drill (`adl_lite/evolution/sandbox.py`, `adl_lite/evolution/code_engine.py`, `experiments/exp_p5_code_evolution.py`) · **Date:** 2026-11-22
-**Governing evidence:** P2 real-trace run (83% proxy-gain intercepted) · P3 calibration (ρ=0.889, gate PASS) · P4 delegation drill (dominance holds under delegation; bench lifecycle fixed)
+**Status:** FULLY IMPLEMENTED — sandbox + code engine + 49 engine tests + P5 live drill (`adl_lite/evolution/sandbox.py`, `adl_lite/evolution/code_engine.py`, `experiments/exp_p5_code_evolution.py`) · **Date:** 2026-11-22
+**Governing evidence:** P2 real-trace run (83% proxy-gain intercepted) · P3 calibration (ρ=0.889, gate PASS) · P4 delegation drill (dominance holds under delegation; bench lifecycle fixed) · adversarial review: all C1–C3/H1–H4/M1–M4/L1–L3 findings closed
 
 ## 1. Problem Statement
 
@@ -57,7 +57,7 @@ Note the asymmetry with artifact evolution: code-level **auto_accept is unavaila
 even for medium risk** regardless of trust. Only external, sandboxed plugins can
 ever auto-accept — and only after their score function is calibrated (I3).
 
-## 5. Execution Architecture
+## 5. Execution Architecture (target, not yet implemented)
 
 ```
 candidate code diff
@@ -112,7 +112,14 @@ live in a namespace the mutated code cannot reach.
    dicts (same shape Phase 2 already seals); `CodeBench` mirrors `HeldOutBench`
    commit–reveal semantics with the candidate's version list sealed before any
    evaluation.
-3. **Code score functions** — **RESOLVED for the planner domain**: strict Pareto
+3. **Probe sufficiency** — **RESOLVED (post-review, finding H3)**: a generator-only
+   held-out shares the candidate's blind spots, so a sufficiency standard gates the
+   bench at construction: S1 ≥1 held-out trace deeper than `eval_hard_stop`, S2 ≥1
+   crafted trace outside the generator's distribution (`generate_adversarial_probes`
+   marks `TaskTrace.crafted=True`), S3 no public/held-out name overlap. The P5
+   drill's boundary-specialist generation (escalate only at loops≥4 — clean on
+   every same-distribution trace) is rejected under this standard.
+4. **Code score functions** — **RESOLVED for the planner domain**: strict Pareto
    over (missed escalations, spurious escalations), both computed *evaluator-side*
    from the evaluator's own requirement model (escalation required at ≥ eval hard
    stop with non-cancelled close). The candidate cannot self-report anything that
@@ -120,27 +127,53 @@ live in a namespace the mutated code cannot reach.
    detected. Calibration (I3) reuses the P3 exhaustive-enumeration protocol,
    executed *through the sandbox itself* (`calibrate_scoring`): the live drill
    measured ρ = 0.955 against gate 0.6.
-4. **Amendment mechanics** — **DEFERRED, documented**: namespace changes are a
+5. **Amendment mechanics** — **DEFERRED, documented**: namespace changes are a
    constitutional amendment event type on the anchor chain. Deliberately not
    built in Phase 3: accepting code must not imply any path to amending the
    constitution that accepted it (self-reference guard). Tracked as future work;
    until then the evaluator namespace is immutable in code.
 
-## 9. Implementation Status (final product)
+## 9. Implementation Status (final product, post adversarial review)
 
-Shipped on `feat/phase2-artifact-evolution`, all tests green:
+Shipped on `feat/phase2-artifact-evolution`, all tests green (114/114 across the
+governance suites). Post-review hardening (review report in `docs/`, all C1–C3 /
+H1–H4 / M1–M4 / L1–L3 findings closed) changed and added the following:
 
-- `evolution/sandbox.py` — confined runtime (I2) as above.
-- `evolution/code_engine.py` — `CodeCandidate` / `CodeDiff` risk tiering /
-  `CodeBench` commit–reveal / evaluator-side scoring / `CodeEvolutionEngine`
-  full pipeline: `Phase3Gate.check` → sandbox public probes → seal check →
-  reveal + sandbox held-out → strict Pareto dominance → `code_acceptance_route`
-  (I4: medium risk never auto-accepts) → delegation downgrade on non-dominance
-  → EWMA trust + budget + lineage blend → hash-chained anchored audit events
-  (`verify_audit_chain()`).
-- `tests/test_phase3_code_engine.py` — 24 tests incl. confinement suite and
-  zero-sandbox-run pre-execution blocks.
-- `experiments/exp_p5_code_evolution.py` — live 7-generation drill: honest fix
-  accepted; over-eager / never-escalate / name-cheater rejected; evaluator-
-  namespace and unsandboxed attacks blocked pre-execution; honest tie rejected
-  post-acceptance; ρ = 0.955 live calibration; audit chain intact.
+- `evolution/approvals.py` — **NEW**: `SignedApproval` (Ed25519, domain-bound to
+  {engine_id, candidate_hash, scorecard_hash, bench_commitment}), `KeyRing`,
+  `acceptance_domain`, centralized `APPROVAL_POLICY`. Governance is executed,
+  not labeled: `board_multi_signoff` requires two *distinct* DIDs, the acceptor
+  must differ from the approver, and signatures are verified **before** reveal —
+  a failed approval consumes no generation and spends no budget (caller errors
+  are distinguished from dominance rejections).
+- `evolution/code_gates.py` — `CodeDiff.from_source` derives modules/touch flags
+  by AST walk (self-declared fields are advisory only); `CalibrationRecord` is
+  frozen with `record_fingerprint()` and `check_calibration` rejects swapped
+  records; `evaluator_namespace_self_check` reports loaded-vs-declared drift.
+- `evolution/replay.py` + `evolution/code_engine.py` — frozen seals: the
+  commitment covers artifact *content* hash; verification compares the frozen
+  snapshot, never current state (source-swap impostor fails); `reveal()` raises
+  on bench rotation; audit events are appended to the shared AnchorChain
+  (anchored record is the source of truth; in-memory log is a projection).
+- `evolution/sandbox.py` — 1 MiB source cap, harness reports `limits_applied`
+  (no silent RLIMIT downgrade; degraded mode refuses acceptance), `degraded`
+  and `last_run_ms` telemetry, `start_new_session=True` replaces `preexec_fn`.
+- `CodeEvolutionEngine` — thread-bound (cross-thread use refused), single lock
+  serializes evaluate/accept; dominance uses `dominance_with_latency` (strict
+  2-axis + one 100 ms bucket); lineage blend caps incoming trust at 0.7 (no
+  floor injection); rejection messages carry no held-out telemetry (M1).
+- Calibration (review finding H2): `ρ` is documented and carried in the
+  protocol string as a **sampling-sufficiency statistic only**; external
+  validity is a separate criterion — `calibrate_against_history` gates on
+  harvested EventChain traces (zero-error requirement).
+- Probe sufficiency (H3): S1–S3 standard + `generate_adversarial_probes`;
+  `allow_insufficient_probes` is test-only and rejected in the engine's policy.
+- Tests: `test_phase3_code_engine.py` grew 24 → 49; `test_phase2_artifacts.py`
+  24 → 32; both suites cover executed governance, frozen seals, thread binding,
+  and impostor cases.
+- `experiments/exp_p5_code_evolution.py` — live 9-generation drill: honest fix
+  accepted under executed board multi-signoff; over-eager / never-escalate /
+  name-cheater / honest-tie rejected; evaluator-namespace and unsandboxed
+  attacks blocked pre-execution with zero sandbox runs; boundary-specialist
+  (escalate only at loops≥4) rejected by the probe-sufficiency standard; no
+  held-out telemetry leaked; ρ = 0.955 live calibration; audit chain intact.
