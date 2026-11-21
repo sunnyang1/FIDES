@@ -27,6 +27,10 @@ that hole structurally, not behaviorally:
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import json
+import sys
 from dataclasses import dataclass, field
 
 
@@ -59,6 +63,49 @@ class CodeDiff:
     touches_persistence: bool = False  # direct DB / chain writes (bypassing registries)
     sandboxed: bool = False            # runtime is confined (no imports beyond allowlist)
     description: str = ""
+
+    @classmethod
+    def from_source(cls, source: str, *, sandboxed: bool = True,
+                    description: str = "") -> "CodeDiff":
+        """Build a diff from STATIC ANALYSIS of candidate source — the modules
+        field is derived, not declared (review finding C3). Imports inside
+        function bodies are found too; dynamic imports (__import__ /
+        importlib with non-literal names) are flagged conservatively by
+        denying them: if we cannot resolve every import statically, the
+        diff claims IO/network/persistence so the tier escalates.
+
+        The proposer may not hand-construct a low-risk diff for arbitrary
+        source; hand-construction remains available only for deployment
+        tooling that runs its own analysis."""
+        io_markers = {"os", "sys", "io", "pathlib", "shutil", "subprocess",
+                      "socket", "urllib", "requests", "http", "sqlite3",
+                      "pickle", "marshal", "ctypes", "importlib", "signal",
+                      "threading", "multiprocessing", "builtins"}
+        tree = ast.parse(source)
+        modules: set[str] = set()
+        dynamic = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    modules.add(a.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    modules.add(node.module)
+            elif isinstance(node, ast.Call):
+                f = node.func
+                name = None
+                if isinstance(f, ast.Name):
+                    name = f.id
+                elif isinstance(f, ast.Attribute):
+                    name = f.attr
+                if name in ("__import__", "exec", "eval", "compile",
+                            "open", "breakpoint", "input"):
+                    dynamic = True
+        touches = bool(modules & io_markers) or dynamic
+        return cls(modules=frozenset(modules),
+                   touches_io=touches, touches_network=touches,
+                   touches_persistence=touches, sandboxed=sandboxed,
+                   description=description)
 
 
 def diff_escalation(diff: CodeDiff,
@@ -110,30 +157,80 @@ def check_sandbox(diff: CodeDiff) -> None:
 # Calibration precondition
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(frozen=True)
 class CalibrationRecord:
-    """Evidence that a score function was calibrated before use."""
+    """Evidence that a score function was calibrated before use.
+
+    frozen: the record is decided ONCE at calibration time; mutating
+    rho/passed after the fact cannot re-open the gate (review finding M3).
+    `artifact_hash` binds the record to the exact scoring artifact it
+    calibrated — a record calibrated for one score function cannot be
+    replayed against another."""
 
     score_function: str
     protocol: str               # e.g. "exp_p3_calibration"
     rho: float
     gate: float = 0.6
     passed: bool = False
+    artifact_hash: str = ""     # sha256 of the canonical scoring artifact
+
+    def record_fingerprint(self) -> str:
+        return hashlib.sha256(
+            json.dumps({"score_function": self.score_function,
+                        "protocol": self.protocol, "rho": self.rho,
+                        "gate": self.gate, "passed": self.passed,
+                        "artifact_hash": self.artifact_hash},
+                       sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def check_calibration(record: CalibrationRecord | None) -> None:
+def check_calibration(record: CalibrationRecord | None,
+                      expected_fingerprint: str | None = None) -> None:
     """A code-level score function must be calibrated (rho >= gate) before
-    its decisions gate anything. Absence of a record is a rejection."""
+    its decisions gate anything. Absence of a record is a rejection. If the
+    engine captured a fingerprint at init time, the record must still match
+    it — a swapped record (even a valid one) is a rejection."""
     if record is None:
         raise ValueError(
             "constitution: score function has no calibration record; run the "
             "P3 calibration protocol before using it in an acceptance path"
+        )
+    if expected_fingerprint is not None and \
+            record.record_fingerprint() != expected_fingerprint:
+        raise ValueError(
+            "constitution: calibration record does not match the fingerprint "
+            "captured at engine init — record swapped or mutated"
         )
     if not record.passed or record.rho < record.gate:
         raise ValueError(
             f"constitution: score function '{record.score_function}' failed "
             f"calibration (rho={record.rho} < gate={record.gate})"
         )
+
+
+def evaluator_namespace_self_check(
+    evaluator_ns: frozenset[str] = DEFAULT_EVALUATOR_NAMESPACE,
+) -> dict[str, list[str]]:
+    """Deployment-side assertion (review finding C3): at governance-process
+    startup, verify the evaluator modules actually loaded in this process
+    are exactly the declared namespace — a dependency that silently pulls an
+    evaluator module under a different name, or an unexpected second copy,
+    is reported. Returns {'unexpected': [...], 'missing': [...]}; an empty
+    report means the runtime matches the constitution."""
+    loaded = set()
+    for name, mod in sys.modules.items():
+        if mod is None:
+            continue
+        for ns in evaluator_ns:
+            if name == ns or name.startswith(ns + "."):
+                loaded.add(name)
+                break
+    declared = set(evaluator_ns)
+    unexpected = sorted(m for m in loaded if not any(
+        m == ns or m.startswith(ns + ".") for ns in declared))
+    # 'missing' = declared modules never imported (acceptable pre-use, but
+    # surfaced so a gutted evaluator cannot pass silently)
+    missing = sorted(ns for ns in declared if ns not in sys.modules)
+    return {"unexpected": unexpected, "missing": missing}
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +248,9 @@ class Phase3Gate:
     evaluator_ns: frozenset[str] = DEFAULT_EVALUATOR_NAMESPACE
 
     def check(self, diff: CodeDiff,
-              calibration: CalibrationRecord | None = None) -> str:
+              calibration: CalibrationRecord | None = None,
+              expected_fingerprint: str | None = None) -> str:
         check_evaluator_namespace(diff, self.evaluator_ns)
         check_sandbox(diff)
-        check_calibration(calibration)
+        check_calibration(calibration, expected_fingerprint)
         return diff_escalation(diff, self.evaluator_ns)

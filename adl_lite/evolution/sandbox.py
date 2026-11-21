@@ -45,6 +45,9 @@ class SandboxTimeout(SandboxError):
     """The candidate exceeded the wall-clock timeout."""
 
 
+MAX_SOURCE_BYTES = 1 << 20  # 1 MiB cap on candidate source (review finding M4)
+
+
 HARNESS = r'''
 import sys, json, io, os, resource
 import importlib.abc
@@ -97,12 +100,13 @@ def main():
     _install_restrictions()
     mem = int(job.get("mem_bytes", 536870912))
     cpu = int(job.get("cpu_seconds", 8))
-    resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+    limits_applied = True
     try:
+        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
         resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
     except (ValueError, OSError):
-        pass
+        limits_applied = False  # surfaced to the parent; never silent
 
     captured = io.StringIO()
     real_stdout = sys.stdout
@@ -138,7 +142,8 @@ def main():
         finally:
             captured.write(buf.getvalue())
     sys.stdout = real_stdout
-    _emit({"status": "ok", "results": results, "stdout": captured.getvalue()})
+    _emit({"status": "ok", "results": results, "stdout": captured.getvalue(),
+           "limits_applied": limits_applied})
 
 
 def _emit(obj):
@@ -168,7 +173,9 @@ class SandboxRunner:
     timeout: float = 20.0
     mem_bytes: int = 512 << 20
     cpu_seconds: int = 8
-    runs: int = 0  # instrumentation: how many sandbox executions happened
+    runs: int = 0            # instrumentation: sandbox executions
+    degraded: bool = False   # True if any OS-level limit failed to apply
+    last_run_ms: float = 0.0  # wall time of the most recent run (scoring axis)
 
     def run_planner(
         self, source: str, traces: list[TaskTrace]
@@ -181,13 +188,23 @@ class SandboxRunner:
         exhaustion of the whole run, timeout).
         """
         self.runs += 1
+        if len(source.encode("utf-8")) > MAX_SOURCE_BYTES:
+            raise SandboxError(
+                f"sandbox: candidate source exceeds {MAX_SOURCE_BYTES} bytes")
         job = json.dumps({
             "source": source,
             "traces": [trace_to_dict(t) for t in traces],
             "mem_bytes": self.mem_bytes,
             "cpu_seconds": self.cpu_seconds,
         })
+        import time as _time
+        t0 = _time.perf_counter()
         try:
+            # start_new_session isolates the child into its own process
+            # group (no preexec_fn: fork+preexec in a multithreaded parent
+            # can deadlock on inherited locks — review finding L1). The
+            # harness applies its own resource limits before running the
+            # candidate; the wall-clock timeout is the parent-side backstop.
             proc = subprocess.run(
                 [sys.executable, "-I", "-c", HARNESS],
                 input=job,
@@ -195,12 +212,14 @@ class SandboxRunner:
                 text=True,
                 timeout=self.timeout,
                 env={"PYTHONHASHSEED": "0"},
-                preexec_fn=self._limits,
+                start_new_session=True,
             )
         except subprocess.TimeoutExpired as e:
             raise SandboxTimeout(
                 f"sandbox: candidate exceeded {self.timeout}s wall clock"
             ) from e
+        finally:
+            self.last_run_ms = (_time.perf_counter() - t0) * 1000.0
         if proc.returncode != 0:
             raise SandboxError(
                 f"sandbox: harness exited {proc.returncode}: "
@@ -215,15 +234,8 @@ class SandboxRunner:
             ) from e
         if msg.get("status") != "ok":
             raise SandboxError(f"sandbox: {msg.get('error', 'unknown failure')}")
+        if msg.get("limits_applied") is False:
+            # harness could not apply OS limits (host restriction): surface
+            # it instead of silently downgrading (review finding M4)
+            self.degraded = True
         return msg["results"]
-
-    def _limits(self) -> None:
-        # Executed in the child before exec(2): OS-level caps even if the
-        # harness itself is compromised.
-        import resource as _r
-        _r.setrlimit(_r.RLIMIT_AS, (self.mem_bytes, self.mem_bytes))
-        _r.setrlimit(_r.RLIMIT_CPU, (self.cpu_seconds, self.cpu_seconds))
-        try:
-            _r.setrlimit(_r.RLIMIT_NPROC, (0, 0))
-        except (ValueError, OSError):
-            pass

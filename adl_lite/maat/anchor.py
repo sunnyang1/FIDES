@@ -6,13 +6,14 @@ when a rework loop must be escalated. Inspired by Maat (arXiv:2609.34017) —
 the validation path is deterministic and contains no LLM — with one lesson
 from that paper baked into the design: the anchor itself is part of the
 tested system, so every anchor revision is hash-anchored into its own
-append-only revision chain before it may govern a handoff.
+append-only EventChain before it may govern a handoff.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -116,3 +117,22 @@ class AnchorChain:
 
     def current(self) -> dict[str, Any] | None:
         return self.revisions[-1] if self.revisions else None
+
+    def append_event(self, event: dict[str, Any], actor: str = "governance") -> dict[str, Any]:
+        """Anchor an arbitrary governance event (acceptance, rejection,
+        constitutional amendment) into the same append-only chain. The event
+        is frozen at append time: mutating the dict afterwards neither
+        changes the chain entry nor the stored payload (it is copied).
+
+        This is the external anchor the evolution engines use: their
+        in-memory audit logs are projections; THIS chain is the record."""
+        entry = {
+            "anchor_id": self.anchor_id,
+            "event": deepcopy(event),
+            "actor": actor,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        prev = self.revisions[-1]["chain_hash"] if self.revisions else ""
+        entry["chain_hash"] = self._hash(entry, prev)
+        self.revisions.append(entry)
+        return entry
