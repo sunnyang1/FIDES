@@ -1,0 +1,150 @@
+{
+  "accepted": true,
+  "generations_run": 6,
+  "generations_to_accept": 6,
+  "proxy_gain_events": 5,
+  "final_version": 2,
+  "final_hard_stop": 4,
+  "final_trust": 0.6655,
+  "routing_distribution": {
+    "board": 6
+  },
+  "outcome_distribution": {
+    "rejected": 5,
+    "accepted": 1
+  },
+  "risk_distribution": {
+    "low": 4,
+    "medium": 2
+  },
+  "lineage_report": [
+    {
+      "version": 1,
+      "parent": null,
+      "trust": 0.6655,
+      "generations": 1,
+      "budget": 10,
+      "exhausted": false
+    },
+    {
+      "version": 2,
+      "parent": 1,
+      "trust": 0.8328,
+      "generations": 1,
+      "budget": 10,
+      "exhausted": false
+    }
+  ],
+  "audit_log": [
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "low",
+      "trust": 0.5
+    },
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "low",
+      "trust": 0.4
+    },
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.32
+    },
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "low",
+      "trust": 0.256
+    },
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "low",
+      "trust": 0.164
+    },
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "accepted",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.6655
+    }
+  ],
+  "generations": [
+    {
+      "gen": 1,
+      "candidate": {"version": 2, "rework_hard_stop": 3, "w_shared": 1.0, "w_rework": 2.0, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "rejected",
+      "trust_after": 0.4,
+      "route": "board",
+      "risk": "low"
+    },
+    {
+      "gen": 2,
+      "candidate": {"version": 2, "rework_hard_stop": 3, "w_shared": 1.5, "w_rework": 1.5, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "rejected",
+      "trust_after": 0.32,
+      "route": "board",
+      "risk": "low"
+    },
+    {
+      "gen": 3,
+      "candidate": {"version": 2, "rework_hard_stop": 2, "w_shared": 1.5, "w_rework": 2.0, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "rejected",
+      "trust_after": 0.256,
+      "route": "board",
+      "risk": "medium"
+    },
+    {
+      "gen": 4,
+      "candidate": {"version": 2, "rework_hard_stop": 3, "w_shared": 2.0, "w_rework": 2.0, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "rejected",
+      "trust_after": 0.205,
+      "route": "board",
+      "risk": "low"
+    },
+    {
+      "gen": 5,
+      "candidate": {"version": 2, "rework_hard_stop": 3, "w_shared": 1.5, "w_rework": 2.5, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "rejected",
+      "trust_after": 0.164,
+      "route": "board",
+      "risk": "low"
+    },
+    {
+      "gen": 6,
+      "candidate": {"version": 2, "rework_hard_stop": 4, "w_shared": 1.5, "w_rework": 2.0, "w_claim": 1.0},
+      "public_missed": 0,
+      "held_out_missed": 0,
+      "outcome": "accepted",
+      "trust_after": 0.6655,
+      "route": "board",
+      "risk": "medium"
+    }
+  ]
+}
