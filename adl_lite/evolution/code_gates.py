@@ -71,7 +71,7 @@ def diff_escalation(diff: CodeDiff,
     medium          — sandboxed, outside evaluator, but within core package
     low             — sandboxed, outside core package (pure plugin/scenario)
     """
-    if diff.modules & evaluator_ns:
+    if set(diff.modules) & set(evaluator_ns):
         return "constitutional"
     if diff.touches_io or diff.touches_network or diff.touches_persistence:
         return "constitutional"
@@ -88,7 +88,7 @@ def check_evaluator_namespace(diff: CodeDiff,
     """Constitution check: the evaluator cannot be mutated by the thing it
     evaluates. Raises before any evaluation runs. This check is permanent —
     it is NOT gated on trust, budget, or any acceptance route."""
-    hit = diff.modules & evaluator_ns
+    hit = set(diff.modules) & set(evaluator_ns)
     if hit:
         raise ValueError(
             "constitution: candidate touches the evaluator namespace "
