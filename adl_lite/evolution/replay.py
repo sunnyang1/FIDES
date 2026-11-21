@@ -46,6 +46,11 @@ class TaskTrace:
     db_ref: str | None
     steps: list[Step]
     expect_status: TaskStatus
+    # True for probes authored outside the default generator (real harvests,
+    # distribution shifts, adversarial minimax probes). The bench's probe
+    # sufficiency check requires at least one crafted trace in held_out so a
+    # generator-specialised candidate cannot pass on same-distribution data.
+    crafted: bool = False
 
 
 def trace_from_history(name: str, history: list[dict[str, Any]]) -> TaskTrace:
@@ -184,32 +189,73 @@ def _hash(x: Any) -> str:
 class HeldOutBench:
     """Commit–reveal protocol for the hidden scenario set.
 
-    Commitment scope: candidate VERSIONS + held-out trace names (not
-    candidate content). Content binding is the dominance gate's job."""
+    Post-review (C1/H1): the seal is a FROZEN snapshot — candidate content
+    hashes and the held-out content hash captured at seal time. Verification
+    compares the frozen snapshot, never current mutable state; rotating
+    held-out content mid-generation is detected at reveal time."""
 
     public_traces: list[TaskTrace] = field(default_factory=sample_traces)
     held_out: list[TaskTrace] = field(default_factory=list)
     commitment: str = ""
     revealed: bool = False
 
-    def _payload_hash(self, candidates: list[PlannerSpec]) -> str:
+    def __post_init__(self) -> None:
+        self._frozen_held_out_hash: str | None = None
+        self._frozen_candidates: dict[int, str] = {}
+        self._commit_seal()
+
+    @staticmethod
+    def artifact_content_hash(spec: "PlannerSpec") -> str:
+        return _hash({"name": spec.name, "version": spec.version,
+                      "w_claim": spec.w_claim, "w_rework": spec.w_rework,
+                      "w_shared": spec.w_shared,
+                      "rework_hard_stop": spec.rework_hard_stop})
+
+    def _held_out_content_hash(self) -> str:
+        return _hash({"held_out": [
+            {"name": t.name, "crafted": t.crafted,
+             "steps": [{"action": s.action, "actor": s.actor,
+                        "payload": s.payload} for s in t.steps]}
+            for t in self.held_out]})
+
+    def _payload_hash_from(self, frozen_map: dict[int, str]) -> str:
         payload = {
-            "candidates": [c.version for c in candidates],
+            "candidates": sorted(
+                [{"version": v, "content_hash": h}
+                 for v, h in frozen_map.items()], key=lambda d: d["version"]),
+            "held_out_hash": self._frozen_held_out_hash,
             "held_out": [t.name for t in self.held_out],
         }
         return _hash(payload)
 
-    def seal(self, candidates: list[PlannerSpec]) -> str:
-        """Sealed BEFORE evaluation: hash(candidate versions + held-out ids)."""
-        self.commitment = self._payload_hash(candidates)
+    def _commit_seal(self, candidates: list["PlannerSpec"] | None = None) -> str:
+        self._frozen_held_out_hash = self._held_out_content_hash()
+        if candidates is not None:
+            self._frozen_candidates = {
+                c.version: self.artifact_content_hash(c) for c in candidates}
+        self.commitment = self._payload_hash_from(self._frozen_candidates)
         return self.commitment
 
+    def seal(self, candidates: list[PlannerSpec]) -> str:
+        """Sealed BEFORE evaluation: versions + CONTENT hashes + held-out."""
+        return self._commit_seal(list(candidates))
+
     def verify_commitment(self, candidates: list[PlannerSpec]) -> bool:
+        """Compare against the FROZEN snapshot (C1/H1): any candidate whose
+        content changed after sealing, or any unknown version, fails."""
         if not self.commitment:
             return False
-        return self._payload_hash(candidates) == self.commitment
+        for c in candidates:
+            frozen = self._frozen_candidates.get(c.version)
+            if frozen is None or frozen != self.artifact_content_hash(c):
+                return False
+        return self.commitment == self._payload_hash_from(self._frozen_candidates)
 
     def reveal(self) -> list[TaskTrace]:
+        if self._held_out_content_hash() != self._frozen_held_out_hash:
+            raise ValueError(
+                "constitution: held-out content changed after sealing — "
+                "bench rotation is not permitted mid-generation (C1)")
         self.revealed = True
         return list(self.held_out)
 
@@ -347,9 +393,12 @@ class SeededArtifactProposer:
 @dataclass
 class ArtifactEvolutionEngine:
     """Phase 2: evolves PlannerSpec artifacts through the same governance
-    loop as anchors — constitution (numeric bounds + anchor coupling),
-    public replay, commit–reveal held-out, strict-dominance acceptance,
-    budgeted lineage, reputation-routed acceptance."""
+    loop as anchors — constitution (here: numeric bounds), public replay,
+    commit–reveal held-out (frozen seal), strict-dominance acceptance,
+    budgeted lineage, reputation-routed acceptance with EXECUTED approvals
+    (Ed25519 signatures bound to candidate content, scorecard, bench
+    commitment, engine identity), every event hash-chained locally and
+    anchored into the shared AnchorChain."""
 
     base_artifact: PlannerSpec = field(default_factory=PlannerSpec)
     bench: HeldOutBench = field(default_factory=HeldOutBench)
@@ -361,14 +410,29 @@ class ArtifactEvolutionEngine:
     # — the knob is dead. The constitution therefore rejects such artifacts
     # BEFORE evaluation.
     rework_threshold: int | None = None
+    key_ring: Any = None        # approvals.KeyRing; loose type to avoid cycle
+    anchor_chain: Any = None    # maat.anchor.AnchorChain
+    engine_id: str = "fides-artifact-engine"
 
     def __post_init__(self) -> None:
+        import threading
+        self._owner_thread = threading.get_ident()
+        self._lock = threading.Lock()
+        self._seq = 0
         self._check_constitution(self.base_artifact)
         self.lineage: list[ArtifactLineage] = [
             ArtifactLineage(self.base_artifact, None)
         ]
         self.audit_log: list[dict[str, Any]] = []
         self._commit_seal()
+        self._audit(self.base_artifact, "genesis", "init", "genesis")
+
+    def _check_thread(self) -> None:
+        import threading
+        if self._owner_thread != threading.get_ident():
+            raise RuntimeError(
+                "engine is single-threaded by constitution: evaluate/accept "
+                "must run on the engine's creating thread (M2)")
 
     def _check_constitution(self, artifact: PlannerSpec) -> None:
         if artifact.rework_hard_stop < 1:
@@ -395,17 +459,29 @@ class ArtifactEvolutionEngine:
     # -- evaluation -------------------------------------------------------
 
     def evaluate(self, candidate: PlannerSpec) -> ArtifactScorecard:
-        self._check_constitution(candidate)
-        card = ArtifactScorecard(candidate.version)
-        card.public_results = self.bench.evaluate(candidate, self.bench.public_traces)
-        # held-out evaluated only at acceptance time (after reveal);
-        # here we verify the commitment covers this candidate
-        card.commitment_ok = self._verify_seal()
-        incumbent = self.lineage[-1]
-        card.dominates_incumbent = card.dominates(
-            self._incumbent_card(candidate)
-        )
-        return card
+        self._check_thread()
+        with self._lock:
+            self._check_constitution(candidate)
+            # commit the candidate pair BEFORE evaluation (DGM lesson);
+            # the FROZEN seal covers versions + content hashes + held-out.
+            self.bench.seal([self.lineage[-1].artifact, candidate])
+            card = ArtifactScorecard(candidate.version)
+            card.public_results = self.bench.evaluate(candidate, self.bench.public_traces)
+            card.commitment_ok = self._verify_seal()
+            incumbent = self.lineage[-1]
+            card.dominates_incumbent = card.dominates(
+                self._incumbent_card(candidate)
+            )
+            self._audit(candidate, "evaluate", "scored", "engine")
+            return card
+
+    def _scorecard_fingerprint(self, card: ArtifactScorecard) -> str:
+        return _hash({
+            "v": card.candidate_version,
+            "pub": [[r.get("clean"), r.get("missed_escalations")]
+                    for r in card.public_results],
+            "commitment_ok": card.commitment_ok,
+        })
 
     def _incumbent_card(self, candidate: PlannerSpec) -> ArtifactScorecard:
         """Score the incumbent on the same public set for dominance compare."""
@@ -419,13 +495,64 @@ class ArtifactEvolutionEngine:
     # -- acceptance --------------------------------------------------------
 
     def accept(self, candidate: PlannerSpec, card: ArtifactScorecard,
-               actor: str = "did:key:zBoard") -> str:
-        """Returns the acceptance route actually taken; records it."""
-        if not card.commitment_ok:
+               actor: str,
+               signatures: list | None = None) -> str:
+        """Returns the acceptance route actually taken; EXECUTES it.
+
+        `actor` is required (no silent default). The route's approval
+        policy is enforced: Ed25519 SignedApprovals bound to candidate
+        content, scorecard fingerprint, bench commitment, and engine
+        identity; board_multi_signoff requires >=2 distinct DIDs, and the
+        acceptor may not be one of the approvers (separation of duties).
+        Callers' signature errors raise WITHOUT consuming a generation."""
+        self._check_thread()
+        with self._lock:
+            return self._accept_locked(candidate, card, actor, signatures)
+
+    def _accept_locked(self, candidate: PlannerSpec, card: ArtifactScorecard,
+                       actor: str, signatures: list | None) -> str:
+        if not card.commitment_ok or not self._verify_seal():
             raise ValueError("commit–reveal seal broken: candidate not committed")
+        # fresh content verification against the frozen seal (H1): a
+        # same-version impostor with different field values fails here
+        if not self.bench.verify_commitment([self.lineage[-1].artifact, candidate]):
+            raise ValueError(
+                "commit–reveal seal broken: candidate content changed "
+                "after sealing (H1)")
         incumbent = self.lineage[-1]
         risk = diff_risk(incumbent.artifact, candidate)
         route = acceptance_route(risk, incumbent.trust_score)
+
+        # executed routing: signatures verified BEFORE the reveal
+        from .approvals import APPROVAL_POLICY, KeyRing, acceptance_domain
+        policy = APPROVAL_POLICY[route]
+        domain = acceptance_domain(
+            engine_id=self.engine_id,
+            candidate_hash=HeldOutBench.artifact_content_hash(candidate),
+            scorecard_hash=self._scorecard_fingerprint(card),
+            bench_commitment=self.bench.commitment or "")
+        sigs = list(signatures or [])
+        if len(sigs) < policy["min_signers"]:
+            raise ValueError(
+                f"route={route} requires {policy['min_signers']} signed "
+                f"approval(s); got {len(sigs)} — the route is executed, "
+                "not merely computed (C2)")
+        ring = self.key_ring or KeyRing()
+        seen_dids: set[str] = set()
+        for sig in sigs:
+            if not ring.verify(sig, domain):
+                raise ValueError(
+                    "constitution: approval signature invalid or bound to a "
+                    "different acceptance domain (C2)")
+            seen_dids.add(sig.did)
+        if len(seen_dids) < policy["min_distinct_dids"]:
+            raise ValueError(
+                f"route={route} requires {policy['min_distinct_dids']} "
+                f"distinct signer DIDs; got {len(seen_dids)}")
+        if policy["reviewer_must_differ"] and actor in seen_dids:
+            raise ValueError(
+                "constitution: separation of duties — the accepting actor "
+                f"cannot be one of the approvers for route {route}")
 
         # held-out reveal + scoring happens HERE, post-commitment
         if self.bench.revealed:
@@ -451,7 +578,9 @@ class ArtifactEvolutionEngine:
             self._audit(candidate, route, "rejected", actor)
             self.bench.revealed = False  # bench resets for the next generation
             self._commit_seal()
-            raise ValueError("candidate rejected: does not dominate on held-out")
+            raise ValueError(
+                "candidate rejected: does not dominate on held-out "
+                "(details in the anchored audit record)")
 
         self._audit(candidate, route, "accepted", actor)
         incumbent.record_outcome(accepted=True)
@@ -467,15 +596,54 @@ class ArtifactEvolutionEngine:
         self._commit_seal()
         return route
 
-    def _audit(self, candidate: PlannerSpec, route: str, outcome: str, actor: str) -> None:
-        self.audit_log.append({
+    def _audit(self, candidate: PlannerSpec, route: str, outcome: str,
+               actor: str) -> None:
+        """Hash-chained local audit entry PLUS anchoring into the shared
+        AnchorChain — the chain is the record; the log is a projection (C1).
+        Entries carry seq/UTC/actor so 'who approved what, when' is
+        answerable from the chain."""
+        import hashlib
+        from datetime import datetime, timezone
+        self._seq += 1
+        entry: dict[str, Any] = {
+            "seq": self._seq,
             "candidate_version": candidate.version,
             "route": route,
             "outcome": outcome,
             "actor": actor,
             "risk": diff_risk(self.lineage[-1].artifact, candidate),
             "trust": self.lineage[-1].trust_score,
-        })
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        prev = self.audit_log[-1]["hash"] if self.audit_log else "GENESIS"
+        entry["prev"] = prev
+        entry["hash"] = hashlib.sha256(
+            json.dumps({**entry, "prev": prev}, sort_keys=True,
+                       default=str).encode()).hexdigest()
+        self.audit_log.append(entry)
+        if self.anchor_chain is not None:
+            self.anchor_chain.append_event(entry, actor=actor)
+
+    def verify_audit_chain(self) -> bool:
+        import hashlib
+        for i, entry in enumerate(self.audit_log):
+            prev = self.audit_log[i - 1]["hash"] if i else "GENESIS"
+            canonical = json.dumps(
+                {k: v for k, v in entry.items() if k != "hash"},
+                sort_keys=True, default=str)
+            if entry["prev"] != prev:
+                return False
+            if entry["hash"] != hashlib.sha256(canonical.encode()).hexdigest():
+                return False
+        if self.anchor_chain is not None:
+            anchored = [e for e in self.anchor_chain.revisions
+                        if "event" in e]
+            if len(anchored) != len(self.audit_log):
+                return False
+            for entry, a in zip(self.audit_log, anchored):
+                if a["event"] != entry:
+                    return False
+        return True
 
     def propose(self) -> PlannerSpec:
         incumbent = self.lineage[-1]
