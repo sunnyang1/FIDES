@@ -263,6 +263,29 @@ def test_constitution_rejects_sub_one_hard_stop():
         ArtifactEvolutionEngine(base_artifact=PlannerSpec(rework_hard_stop=0))
 
 
+def test_constitution_couples_hard_stop_below_anchor_threshold():
+    """Experiment P2 finding: the circuit breaker caps observable rework
+    loops at threshold-1, so a hard_stop >= threshold is a dead knob and
+    must be rejected before evaluation."""
+    bench = HeldOutBench(held_out=[])
+    eng = ArtifactEvolutionEngine(bench=bench, rework_threshold=5)
+    # 4 < 5: constitutional
+    ok = PlannerSpec(version=2, rework_hard_stop=4)
+    eng.evaluate(ok)
+    # 5 >= 5: stop condition unreachable — constitution violation
+    with pytest.raises(ValueError, match="unreachable"):
+        eng.evaluate(PlannerSpec(version=3, rework_hard_stop=5))
+    # genesis artifact must also satisfy the coupling
+    with pytest.raises(ValueError, match="unreachable"):
+        ArtifactEvolutionEngine(
+            base_artifact=PlannerSpec(rework_hard_stop=10),
+            bench=bench,
+            rework_threshold=5,
+        )
+    # no threshold configured: knob uncoupled (free evolution mode)
+    ArtifactEvolutionEngine(bench=bench).evaluate(PlannerSpec(version=2, rework_hard_stop=99))
+
+
 def test_report_tracks_lineage():
     eng = _engine_with_hidden_dispute()
     candidate = PlannerSpec(version=2, rework_hard_stop=10)

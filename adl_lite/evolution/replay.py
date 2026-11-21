@@ -344,22 +344,42 @@ class SeededArtifactProposer:
 @dataclass
 class ArtifactEvolutionEngine:
     """Phase 2: evolves PlannerSpec artifacts through the same governance
-    loop as anchors — constitution (here: numeric bounds), public replay,
-    commit–reveal held-out, strict-dominance acceptance, budgeted lineage,
-    reputation-routed acceptance."""
+    loop as anchors — constitution (numeric bounds + anchor coupling),
+    public replay, commit–reveal held-out, strict-dominance acceptance,
+    budgeted lineage, reputation-routed acceptance."""
 
     base_artifact: PlannerSpec = field(default_factory=PlannerSpec)
     bench: HeldOutBench = field(default_factory=HeldOutBench)
     proposer: ArtifactProposer = field(default_factory=SeededArtifactProposer)
+    # The anchor's circuit-breaker threshold the planner operates under.
+    # Governance caps observable rework loops at threshold-1 (the breaker
+    # refuses the threshold-th reject), so a planner whose hard_stop is not
+    # strictly below the threshold can never observe its own stop condition
+    # — the knob is dead. The constitution therefore rejects such artifacts
+    # BEFORE evaluation.
+    rework_threshold: int | None = None
 
     def __post_init__(self) -> None:
-        if self.base_artifact.rework_hard_stop < 1:
-            raise ValueError("rework_hard_stop must be >= 1")
+        self._check_constitution(self.base_artifact)
         self.lineage: list[ArtifactLineage] = [
             ArtifactLineage(self.base_artifact, None)
         ]
         self.audit_log: list[dict[str, Any]] = []
         self._commit_seal()
+
+    def _check_constitution(self, artifact: PlannerSpec) -> None:
+        if artifact.rework_hard_stop < 1:
+            raise ValueError("constitution: rework_hard_stop must be >= 1")
+        if (
+            self.rework_threshold is not None
+            and artifact.rework_hard_stop >= self.rework_threshold
+        ):
+            raise ValueError(
+                "constitution: rework_hard_stop must be < anchor rework_threshold "
+                f"({artifact.rework_hard_stop} >= {self.rework_threshold}); the "
+                "circuit breaker caps observable loops at threshold-1, so this "
+                "stop condition is unreachable"
+            )
 
     # -- commit–reveal ----------------------------------------------------
 
@@ -372,8 +392,7 @@ class ArtifactEvolutionEngine:
     # -- evaluation -------------------------------------------------------
 
     def evaluate(self, candidate: PlannerSpec) -> ArtifactScorecard:
-        if candidate.rework_hard_stop < 1:
-            raise ValueError("constitution: rework_hard_stop >= 1")
+        self._check_constitution(candidate)
         card = ArtifactScorecard(candidate.version)
         card.public_results = self.bench.evaluate(candidate, self.bench.public_traces)
         # held-out evaluated only at acceptance time (after reveal);

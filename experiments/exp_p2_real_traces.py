@@ -152,7 +152,9 @@ def main() -> None:
         print(f"  {t.name:14s} steps={n_steps} rejects={n_rej} db_ref={t.db_ref}")
 
     # sanity: default spec is clean on public, misses the held-out dispute
-    eng_probe = ArtifactEvolutionEngine(bench=HeldOutBench(public, held_out))
+    eng_probe = ArtifactEvolutionEngine(
+        bench=HeldOutBench(public, held_out), rework_threshold=5
+    )
     inc = eng_probe.lineage[-1].artifact
     pub_scores = eng_probe.bench.evaluate(inc, public)
     ho_scores = eng_probe.bench.evaluate(inc)
@@ -161,7 +163,9 @@ def main() -> None:
           f"held_out_missed={sum(r['missed_escalations'] for r in ho_scores)}")
 
     # ---- the real run ---------------------------------------------------
-    eng = ArtifactEvolutionEngine(bench=HeldOutBench(public, held_out))
+    eng = ArtifactEvolutionEngine(
+        bench=HeldOutBench(public, held_out), rework_threshold=5
+    )
     generations: list[dict] = []
     accepted = False
     MAX_GEN = 12
