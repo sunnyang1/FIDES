@@ -28,7 +28,6 @@ from adl_lite.consensus import ConsensusEngine
 from adl_lite.evolution.replay import (
     ArtifactEvolutionEngine,
     HeldOutBench,
-    PlannerSpec,
     TaskTrace,
     trace_from_history,
 )
@@ -192,7 +191,7 @@ def main() -> None:
         pub_miss = sum(r["missed_escalations"] for r in card.public_results)
         pub_clean = card.clean_public
         try:
-            route = eng.accept(candidate, card, actor=actor,
+            eng.accept(candidate, card, actor=actor,
                                signatures=_sign(eng, candidate, card))
             outcome = "accepted"
             ho_miss = sum(r["missed_escalations"] for r in card.held_out_results)
@@ -251,7 +250,7 @@ def main() -> None:
         "generations": generations,
     }
     OUT.write_text(json.dumps(results, indent=2))
-    print(f"\n=== RESULTS ===")
+    print("\n=== RESULTS ===")
     print(f"accepted: {results['accepted']} in {results['generations_to_accept']} generations")
     print(f"proxy-gain events (public-clean but held-out reject): {proxy_gain_events}")
     print(f"routing: {results['routing_distribution']}")

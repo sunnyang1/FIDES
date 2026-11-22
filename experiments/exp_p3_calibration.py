@@ -9,16 +9,16 @@ what the governance loop actually sees: a candidate's misses on a small
 scenario set (public only, or public + commit–reveal held-out).
 
 Protocol:
-  1. Generate N candidates: quality-axis sweep + score-neutral weight
-     variants + hand-written PROXY-GAIN candidates (specialised to the
-     public trace names — clean on the scenario set, worse on the full
-     space; the DGM move).
+  1. Generate N candidates: seeded proposer walk + hand-written
+     PROXY-GAIN candidates (specialised to the public trace names —
+     clean on the scenario set, worse on the full space; the DGM move).
   2. Ground-truth ranking: exhaustive miss-rate over the full space.
   3. Replay rankings: public-only score, then public+held-out score.
-  4. Tie-aware Spearman rho between each replay ranking and ground truth.
-     The headline: how much does the held-out bench raise rho?
+  4. Spearman rho between each replay ranking and ground truth.
+     The headline: how much does the held-out bench raise rho, and does
+     it demote proxy-gain candidates?
 
-Gate proposal: combined rho >= 0.6 unlocks Phase 3 (code-level evolution).
+Gate proposal: rho_heldout >= 0.6 unlocks Phase 3 (code-level evolution).
 
 Run:  python3 experiments/exp_p3_calibration.py
 """
@@ -77,15 +77,6 @@ def true_miss_rate(spec: PlannerSpec, space: list[TaskTrace]) -> float:
     return misses / len(space)
 
 
-def _plain(spec: PlannerSpec) -> PlannerSpec:
-    """Copy without subclass fields (NameSpecialisedSpec carries extras)."""
-    return PlannerSpec(
-        name=spec.name, version=spec.version, w_claim=spec.w_claim,
-        w_rework=spec.w_rework, w_shared=spec.w_shared,
-        rework_hard_stop=spec.rework_hard_stop,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Proxy-gain candidates: clean on the scenario set, worse in truth.
 # The DGM move — specialise to what the evaluator shows you.
@@ -98,7 +89,7 @@ class NameSpecialisedSpec(PlannerSpec):
     scenario set while its real knob rots. Modelled as a scorer wrapper."""
 
     def __init__(self, base: PlannerSpec, known_names: set[str], cheat_stop: int):
-        super().__init__(**{**base.__dict__})
+        super().__init__(**base.__dict__)
         self._known = known_names
         self._cheat_stop = cheat_stop
 
@@ -107,7 +98,11 @@ def score_with_cheat(trace: TaskTrace, spec: NameSpecialisedSpec) -> dict:
     """The cheater scores clean on known trace names by pretending its
     hard_stop is higher there. Replay the SAME deterministic plan(), but
     with an effective spec swapped in for known names."""
-    effective = _plain(spec)
+    effective = PlannerSpec(
+        name=spec.name, version=spec.version, w_claim=spec.w_claim,
+        w_rework=spec.w_rework, w_shared=spec.w_shared,
+        rework_hard_stop=spec.rework_hard_stop,
+    )
     if trace.name in spec._known:
         effective.rework_hard_stop = spec._cheat_stop
     return score_plans(trace, effective)
@@ -116,7 +111,7 @@ def score_with_cheat(trace: TaskTrace, spec: NameSpecialisedSpec) -> dict:
 def main() -> None:
     space = enumerate_space()
     print(f"trace space: {len(space)} traces "
-          f"({len(set(t.name for t in space))} distinct)")
+          f"({len({t.name for t in space})} distinct)")
 
     # ---- scenario sets (what the loop actually sees) --------------------
     public = [t for t in space if t.name in {
@@ -160,29 +155,39 @@ def main() -> None:
         truth[name] = true_miss_rate(spec, space)
     for name, spec in zip(cheater_names, cheaters):
         # truth uses the REAL knob, no name-based cheat — exhaustive space
-        truth[name] = true_miss_rate(_plain(spec), space)
+        real = PlannerSpec(
+            name=spec.name, version=spec.version, w_claim=spec.w_claim,
+            w_rework=spec.w_rework, w_shared=spec.w_shared,
+            rework_hard_stop=spec.rework_hard_stop,
+        )
+        truth[name] = true_miss_rate(real, space)
 
     # ---- replay scores ---------------------------------------------------
-    def public_score(spec) -> int:
+    def public_score(name: str, spec) -> int:
         if isinstance(spec, NameSpecialisedSpec):
             return sum(score_with_cheat(t, spec)["missed_escalations"] for t in public)
         return sum(score_plans(t, spec)["missed_escalations"] for t in public)
 
-    def heldout_score(spec) -> int:
+    def heldout_score(name: str, spec) -> int:
         # held-out traces are NOT in the cheater's known set: cheat fails
         if isinstance(spec, NameSpecialisedSpec):
-            real = _plain(spec)
+            real = PlannerSpec(
+                name=spec.name, version=spec.version, w_claim=spec.w_claim,
+                w_rework=spec.w_rework, w_shared=spec.w_shared,
+                rework_hard_stop=spec.rework_hard_stop,
+            )
             return sum(score_plans(t, real)["missed_escalations"] for t in held_out)
         return sum(score_plans(t, spec)["missed_escalations"] for t in held_out)
 
     names = all_names + cheater_names
     specs = pool + cheaters
-    pub = {n: public_score(s) for n, s in zip(names, specs)}
-    ho = {n: heldout_score(s) for n, s in zip(names, specs)}
+    pub = {n: public_score(n, s) for n, s in zip(names, specs)}
+    ho = {n: heldout_score(n, s) for n, s in zip(names, specs)}
     combined = {n: pub[n] + ho[n] for n in names}
 
-    # ---- Spearman rankings (tie-aware average ranks) ---------------------
+    # ---- Spearman rankings ----------------------------------------------
     def _ranks(scores: dict[str, float]) -> dict[str, float]:
+        """Average ranks, tie-aware (proper Spearman)."""
         order = sorted(scores, key=lambda k: scores[k])
         ranks: dict[str, float] = {}
         i = 0
@@ -210,7 +215,7 @@ def main() -> None:
     rho_heldout = spearman(combined, truth)
     rho_ho_only = spearman(ho, truth)
 
-    # cheater rank positions
+    # cheater demotion analysis
     def rank_of(scores: dict[str, float], name: str) -> int:
         order = sorted(scores, key=lambda k: scores[k])
         return order.index(name) + 1

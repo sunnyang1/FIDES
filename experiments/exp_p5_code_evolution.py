@@ -31,10 +31,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from exp_p3_calibration import enumerate_space  # noqa: E402
+from exp_p3_calibration import enumerate_space
 
-from adl_lite.evolution.approvals import KeyRing, acceptance_domain  # noqa: E402
-from adl_lite.evolution.code_engine import (  # noqa: E402
+from adl_lite.evolution.approvals import KeyRing, acceptance_domain
+from adl_lite.evolution.code_engine import (
+    REFERENCE_PLANNER_SOURCE,
     CodeBench,
     CodeCandidate,
     CodeEvolutionEngine,
@@ -43,11 +44,10 @@ from adl_lite.evolution.code_engine import (  # noqa: E402
     make_hard_stop_source,
     make_name_cheater_source,
     make_never_escalate_source,
-    REFERENCE_PLANNER_SOURCE,
 )
-from adl_lite.evolution.code_gates import CodeDiff  # noqa: E402
-from adl_lite.evolution.sandbox import SandboxError, SandboxRunner  # noqa: E402
-from adl_lite.maat.anchor import AnchorChain  # noqa: E402
+from adl_lite.evolution.code_gates import CodeDiff
+from adl_lite.evolution.sandbox import SandboxRunner
+from adl_lite.maat.anchor import AnchorChain
 
 OUT = Path(__file__).resolve().parent / "exp_p5_code_evolution.json"
 REPORT = Path(__file__).resolve().parent / "exp_p5_report.md"

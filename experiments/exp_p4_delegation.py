@@ -34,14 +34,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from adl_lite.agents.task import TaskStatus
 from adl_lite.evolution.approvals import KeyRing, acceptance_domain
 from adl_lite.evolution.replay import (
     ArtifactEvolutionEngine,
     HeldOutBench,
     PlannerSpec,
-    Step,
-    TaskTrace,
     score_plans,
 )
 from experiments.exp_p3_calibration import enumerate_space, true_miss_rate
@@ -72,7 +69,7 @@ class NameSpecialisedSpec(PlannerSpec):
     """Red-team candidate: name-tuned cheat (same construction as P3)."""
 
     def __init__(self, base: PlannerSpec, known_names: set[str], cheat_stop: int):
-        super().__init__(**{**base.__dict__})
+        super().__init__(**base.__dict__)
         self._known = known_names
         self._cheat_stop = cheat_stop
 
@@ -111,7 +108,6 @@ class ScriptedProposer:
 
 def score_public(candidate, public) -> int:
     if isinstance(candidate, NameSpecialisedSpec):
-        eff = _plain(candidate)
         if True:  # cheat applies per-name below
             pass
         total = 0
@@ -158,11 +154,11 @@ def main() -> None:
     def step(candidate, label: str) -> dict:
         card = eng.evaluate(candidate)
         try:
-            route = eng.accept(candidate, card, actor=ACTOR,
+            eng.accept(candidate, card, actor=ACTOR,
                                signatures=_sign(eng, candidate, card))
             outcome, ho_miss = "accepted", sum(
                 r["missed_escalations"] for r in card.held_out_results)
-        except ValueError as e:
+        except ValueError:
             outcome, ho_miss = "rejected", None
         rec = {
             "label": label,
@@ -213,7 +209,7 @@ def main() -> None:
     # this space (loops<=5), so no strict improvement exists. The correct
     # drill outcome: recovery candidate is REJECTED (tie), proving the
     # gate is conservative even after an attack — no 'free' recoveries.
-    rec = step(PlannerSpec(version=100, rework_hard_stop=6), "recover")
+    step(PlannerSpec(version=100, rework_hard_stop=6), "recover")
     print("note: recovery rejected = dominance gate stays strict post-attack; "
           "the lineage keeps the last honest optimal (v3 hs=6)")
 
