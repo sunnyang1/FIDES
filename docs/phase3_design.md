@@ -1,6 +1,6 @@
 # FIDES Phase 3 — Code-Level Self-Modification: Design Document
 
-**Status:** FULLY IMPLEMENTED — sandbox + code engine + 49 engine tests + P5 live drill (`adl_lite/evolution/sandbox.py`, `adl_lite/evolution/code_engine.py`, `experiments/exp_p5_code_evolution.py`) · **Date:** 2026-11-22
+**Status:** FULLY IMPLEMENTED — sandbox + code engine + 51 engine tests + P5 live drill + FIDES-Eval (`adl_lite/evolution/sandbox.py`, `adl_lite/evolution/code_engine.py`, `experiments/exp_p5_code_evolution.py`) · **Date:** 2026-11-22
 **Governing evidence:** P2 real-trace run (83% proxy-gain intercepted) · P3 calibration (ρ=0.889, gate PASS) · P4 delegation drill (dominance holds under delegation; bench lifecycle fixed) · adversarial review: all C1–C3/H1–H4/M1–M4/L1–L3 findings closed
 
 ## 1. Problem Statement
@@ -135,8 +135,10 @@ live in a namespace the mutated code cannot reach.
 
 ## 9. Implementation Status (final product, post adversarial review)
 
-Shipped on `feat/phase2-artifact-evolution`, all tests green (114/114 across the
-governance suites). Post-review hardening (review report in `docs/`, all C1–C3 /
+Shipped on `feat/phase2-artifact-evolution`, all tests green (127/127 across the
+governance and FIDES-Eval suites, including deterministic RealFix-30 selection
+and local real-Git harness controls; no official SWE-bench score is claimed).
+Post-review hardening (review report in `docs/`, all C1–C3 /
 H1–H4 / M1–M4 / L1–L3 findings closed) changed and added the following:
 
 - `evolution/approvals.py` — **NEW**: `SignedApproval` (Ed25519, domain-bound to
@@ -168,9 +170,10 @@ H1–H4 / M1–M4 / L1–L3 findings closed) changed and added the following:
   harvested EventChain traces (zero-error requirement).
 - Probe sufficiency (H3): S1–S3 standard + `generate_adversarial_probes`;
   `allow_insufficient_probes` is test-only and rejected in the engine's policy.
-- Tests: `test_phase3_code_engine.py` grew 24 → 49; `test_phase2_artifacts.py`
+- Tests: `test_phase3_code_engine.py` grew 24 → 51; `test_phase2_artifacts.py`
   24 → 32; both suites cover executed governance, frozen seals, thread binding,
-  and impostor cases.
+  and impostor cases. Added held-out sandbox-failure recovery/retry and direct
+  AnchorChain linkage-tampering regression coverage.
 - `experiments/exp_p5_code_evolution.py` — live 9-generation drill: honest fix
   accepted under executed board multi-signoff; over-eager / never-escalate /
   name-cheater / honest-tie rejected; evaluator-namespace and unsandboxed
