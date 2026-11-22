@@ -29,8 +29,9 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from statistics import mean
+from typing import Any
 
 from .approvals import (
     APPROVAL_POLICY,
@@ -40,7 +41,6 @@ from .approvals import (
     sha256_hex,
 )
 from .code_gates import (
-    DEFAULT_EVALUATOR_NAMESPACE,
     CalibrationRecord,
     CodeDiff,
     Phase3Gate,
@@ -60,8 +60,7 @@ def _canon(obj: dict) -> bytes:
 # Candidate protocol: a planner module defines plan(trace: dict) -> list[str]
 # ---------------------------------------------------------------------------
 
-REFERENCE_PLANNER_SOURCE = '''
-"""Reference planner: escalate once rework loops reach HARD_STOP."""
+REFERENCE_PLANNER_SOURCE = '\n"""Reference planner: escalate once rework loops reach HARD_STOP."""
 HARD_STOP = 3
 
 
@@ -82,7 +81,7 @@ def plan(trace):
                 actions.append("ESCALATE")
             actions.append(s["actor"])
     return actions
-'''
+'
 
 
 def make_hard_stop_source(hard_stop: int) -> str:
@@ -144,6 +143,7 @@ def generate_adversarial_probes(eval_hard_stop: int = 3) -> list[TaskTrace]:
     tuned to the generator's distribution (e.g. 'escalate only at loops>=4')
     is exposed. All are marked crafted=True."""
     from adl_lite.agents.task import TaskStatus
+
     from .replay import Step
 
     probes: list[TaskTrace] = []
@@ -389,18 +389,19 @@ class CodeBench:
             "held_out": [t.name for t in self.held_out],
         })
 
-    def _commit_seal(self, candidates: list["CodeCandidate"] | None = None) -> None:
+    def _commit_seal(self, candidates: list[CodeCandidate] | None = None) -> None:
         self._frozen_held_out_hash = self._held_out_content_hash()
         if candidates is not None:
             self._frozen_candidates = {
                 c.version: candidate_source_hash(c.source) for c in candidates}
         self.commitment = self._payload_hash_from(self._frozen_candidates)
 
-    def seal(self, candidates: list["CodeCandidate"]) -> str:
+    def seal(self, candidates: list[CodeCandidate]) -> str:
         self._commit_seal(list(candidates))
+        assert self.commitment is not None  # set by _commit_seal
         return self.commitment
 
-    def verify_commitment(self, candidates: list["CodeCandidate"]) -> bool:
+    def verify_commitment(self, candidates: list[CodeCandidate]) -> bool:
         """Compare against the FROZEN snapshot: every presented candidate's
         source hash must equal the sealed one; the frozen held-out content
         hash must be intact (bench rotation is detectable)."""
@@ -517,8 +518,8 @@ class CodeScorecard:
 
 @dataclass
 class CodeLineage:
+    artifact: CodeCandidate
     budget: int = 3
-    artifact: CodeCandidate | None = None
     trust: float = 0.5
 
     def __post_init__(self) -> None:
@@ -536,7 +537,7 @@ class CodeLineage:
         else:
             self.trust = 0.8 * self.trust
 
-    def blend(self, incoming: "CodeLineage") -> None:
+    def blend(self, incoming: CodeLineage) -> None:
         self.artifact = incoming.artifact
         # H4 fix: an incoming lineage starts at its measured trust, never
         # above 0.7 — one acceptance cannot inject a floor that immediately
@@ -666,7 +667,7 @@ class CodeEvolutionEngine:
     runner: SandboxRunner = field(default_factory=SandboxRunner)
     budget: int = 3
     key_ring: KeyRing | None = None
-    anchor_chain: object | None = None   # AnchorChain; typed loosely to
+    anchor_chain: Any | None = None   # AnchorChain; typed loosely to
     # avoid import cycle in docs tooling — runtime duck-types append_event
     engine_id: str = "fides-code-engine"
     _lineage: CodeLineage = field(init=False, repr=False)
@@ -928,7 +929,7 @@ class CodeEvolutionEngine:
         self._seq += 1
         entry = {"seq": self._seq, "event": event, "data": data,
                  "actor": actor,
-                 "at": datetime.now(timezone.utc).isoformat()}
+                 "at": datetime.now(UTC).isoformat()}
         prev = self.audit_log[-1]["hash"] if self.audit_log else "GENESIS"
         canonical = json.dumps({**entry, "prev": prev}, sort_keys=True,
                                default=str)
