@@ -5,6 +5,35 @@ All notable changes to ADL Lite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FIDES-Eval v0.1** (`docs/fides_eval_v0_1.md`): ProxyGauntlet executes eight
+  discriminating governance cases with zero unsafe promotions; ValleyPath
+  compares single-line, ungoverned-archive, and governed-archive search under
+  identical offered proposals. Both experiments emit machine-readable JSON and
+  Markdown reports.
+- **RealFix harness and selector**: deterministic, repository-diverse RealFix-30
+  selection from a local official JSONL export, with a 6/24 development/held-out
+  split and no gold/test patch leakage into the manifest. Local smoke controls
+  evaluate patches in fresh Git clones, reject protected test edits, normalize
+  test outcomes, and leave the source checkout unchanged. No official SWE-bench
+  evaluation is claimed.
+- **RealFix controlled-comparison input layer**: five-arm plans bind identical
+  task manifests, model, scaffold, seed, and per-task budget caps. Prediction
+  JSONL validation enforces exact task coverage; prediction hashes bind official
+  run IDs to exact patches. Official schema-v2 report normalization checks
+  outcome/count consistency and refuses cross-arm or cross-configuration
+  comparisons. These utilities do not generate predictions or run models.
+
+### Fixed
+
+- Held-out candidate or incumbent sandbox failures now record a rejection,
+  restore the incumbent bench seal, and permit a subsequent evaluation retry.
+- `verify_audit_chain()` now verifies the AnchorChain's own hash linkage in
+  addition to comparing the in-memory audit projection with anchored events.
+
 ## [0.9.0-alpha] — 2026-08-08
 
 ### Added
