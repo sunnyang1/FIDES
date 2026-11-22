@@ -1,0 +1,143 @@
+{
+  "trust_at_unlock": 0.92,
+  "delegation_unlocked": true,
+  "accepted_versions": [
+    2,
+    3
+  ],
+  "final_version": 3,
+  "final_hard_stop": 6,
+  "final_trust": 0.5888,
+  "red_team": {
+    "cheater_true_miss_rate": 0.4166666666666667,
+    "rejected": true,
+    "route_downgraded_to_board": true,
+    "audit_entry": {
+      "candidate_version": 99,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.736
+    }
+  },
+  "accepted_candidate_is_truth_optimal": true,
+  "log": [
+    {
+      "label": "climb",
+      "version": 2,
+      "hard_stop": 5,
+      "public_misses": 0,
+      "held_out_misses": 1,
+      "outcome": "accepted",
+      "route": "board",
+      "risk": "medium",
+      "trust_after": 0.8
+    },
+    {
+      "label": "climb",
+      "version": 3,
+      "hard_stop": 6,
+      "public_misses": 0,
+      "held_out_misses": 0,
+      "outcome": "accepted",
+      "route": "single_reviewer",
+      "risk": "medium",
+      "trust_after": 0.92
+    },
+    {
+      "label": "climb",
+      "version": 4,
+      "hard_stop": 6,
+      "public_misses": 0,
+      "held_out_misses": null,
+      "outcome": "rejected",
+      "route": "board",
+      "risk": "medium",
+      "trust_after": 0.8
+    },
+    {
+      "label": "climb",
+      "version": 5,
+      "hard_stop": 6,
+      "public_misses": 0,
+      "held_out_misses": null,
+      "outcome": "rejected",
+      "route": "board",
+      "risk": "medium",
+      "trust_after": 0.736
+    },
+    {
+      "label": "red-team",
+      "version": 99,
+      "hard_stop": 1,
+      "public_misses": 1,
+      "held_out_misses": null,
+      "outcome": "rejected",
+      "route": "board",
+      "risk": "medium",
+      "trust_after": 0.736
+    },
+    {
+      "label": "recover",
+      "version": 100,
+      "hard_stop": 6,
+      "public_misses": 0,
+      "held_out_misses": null,
+      "outcome": "rejected",
+      "route": "board",
+      "risk": "low",
+      "trust_after": 0.5888
+    }
+  ],
+  "audit_log": [
+    {
+      "candidate_version": 2,
+      "route": "board",
+      "outcome": "accepted",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.8
+    },
+    {
+      "candidate_version": 3,
+      "route": "single_reviewer",
+      "outcome": "accepted",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.92
+    },
+    {
+      "candidate_version": 4,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.736
+    },
+    {
+      "candidate_version": 5,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.5888
+    },
+    {
+      "candidate_version": 99,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "medium",
+      "trust": 0.736
+    },
+    {
+      "candidate_version": 100,
+      "route": "board",
+      "outcome": "rejected",
+      "actor": "did:key:zBoard",
+      "risk": "low",
+      "trust": 0.5888
+    }
+  ]
+}
