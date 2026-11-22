@@ -31,8 +31,7 @@ import ast
 import hashlib
 import json
 import sys
-from dataclasses import dataclass, field
-
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Namespace declaration
@@ -66,7 +65,7 @@ class CodeDiff:
 
     @classmethod
     def from_source(cls, source: str, *, sandboxed: bool = True,
-                    description: str = "") -> "CodeDiff":
+                    description: str = "") -> CodeDiff:
         """Build a diff from STATIC ANALYSIS of candidate source — the modules
         field is derived, not declared (review finding C3). Imports inside
         function bodies are found too; dynamic imports (__import__ /

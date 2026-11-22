@@ -10,8 +10,7 @@ fixed multi-check rubric follows Maat, the checks themselves are ADL's):
   1. structure       — required payload fields for the event type
   2. vocabulary      — required_capabilities ∈ known capability vocabulary
   3. state_machine   — transition ∈ _TASK_TRANSITIONS(current)
-  4. identity        — DID actors are registered, ACTIVE agents (system
-                       roles authenticate at the API layer)
+  4. identity        — actor is a registered, ACTIVE agent (if enforced)
   5. lineage         — parent_task_id exists and is a task chain
   6. resource        — shared-object lock held before claim executes
   7. circuit_breaker — rework loops halt at anchor.rework_threshold
@@ -23,8 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..agents.identity import AgentRegistry, AgentStatus, chain_kind
-from ..agents.task import TaskStatus, _TASK_TRANSITIONS
-from ..did_resolver import is_did
+from ..agents.task import _TASK_TRANSITIONS, TaskStatus
 from ..models import Event, EventType
 from .anchor import AnchorSpec
 from .locks import LockVerdict, ResourceLockManager
@@ -170,6 +168,8 @@ class GateKeeper:
             return GateVerdict("identity", True, "identity gate disabled")
         if self.agents is None:
             return GateVerdict("identity", True, "no agent registry: gate degenerates")
+        from ..did_resolver import is_did
+
         if not is_did(ctx.actor):
             # System roles (planner/governance/...) authenticate at the API
             # layer (admin JWT), not at the agent-identity layer.
@@ -205,7 +205,7 @@ class GateKeeper:
         db_ref = ctx.payload.get("db_ref")
         if ctx.event_type != EventType.TASK_CLAIM:
             return GateVerdict("resource", True, "claim-only gate")
-        if not self.locks.is_shared(db_ref):
+        if not isinstance(db_ref, str) or not self.locks.is_shared(db_ref):
             return GateVerdict("resource", True, "exclusive object: lock-free")
         verdict: LockVerdict = self.locks.acquire(db_ref, ctx.actor, ctx.task_id)
         if not verdict.allowed:

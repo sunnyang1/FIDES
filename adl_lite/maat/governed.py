@@ -2,13 +2,13 @@
 
 Every lifecycle method consults the GateKeeper *before* any event is appended;
 a blocked handoff raises GateViolation and leaves the chain untouched (the
-chain records facts, not attempted facts). On success, gate-audit messages are
-appended so the governance trail is replayable from the chain.
+chain records facts, not attempted facts). On success, optional gate-audit
+messages are appended so the governance trail is replayable from the chain.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from ..agents.identity import AgentRegistry, chain_kind
 from ..agents.task import Task, TaskRegistry, TaskStatus, derive_task_status
@@ -16,7 +16,7 @@ from ..consensus import ConsensusEngine
 from ..exceptions import GateViolation
 from ..models import Event, EventType
 from .anchor import AnchorChain, AnchorSpec
-from .gates import GateKeeper, HandoffContext, current_claim_holder
+from .gates import GateKeeper, HandoffContext
 from .locks import ResourceLockManager
 
 
@@ -144,7 +144,7 @@ class GovernedTaskRegistry(TaskRegistry):
         confidence: float = 0.5,
     ) -> Event:
         chain = self.engine.chains[task_id]
-        holder = current_claim_holder(chain.events)
+        holder = self._current_holder(chain.events)
         if holder is not None and agent_did != holder:
             raise GateViolation(
                 "identity", f"submit by non-holder: bound to {holder}"
@@ -170,7 +170,7 @@ class GovernedTaskRegistry(TaskRegistry):
     ) -> Event:
         chain = self.engine.chains[task_id]
         if self.anchor.validator_not_submitter:
-            holder = current_claim_holder(chain.events)
+            holder = self._current_holder(chain.events)
             if holder is not None and validator_actor == holder:
                 raise GateViolation(
                     "identity", "validator must not be the submitting agent (B3 analog)"
@@ -231,3 +231,9 @@ class GovernedTaskRegistry(TaskRegistry):
             self.close(cid, actor, "cancelled", reason=f"cascade from {parent_id}")
             cancelled += 1
         return cancelled
+
+    @staticmethod
+    def _current_holder(events: list[Event]) -> str | None:
+        from .gates import current_claim_holder
+
+        return current_claim_holder(events)
