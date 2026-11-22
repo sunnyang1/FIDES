@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import sys
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from adl_lite.agents.task import TaskStatus
 from adl_lite.evolution.approvals import KeyRing, acceptance_domain
 from adl_lite.evolution.code_engine import (
+    REFERENCE_PLANNER_SOURCE,
     CodeBench,
     CodeCandidate,
     CodeEvolutionEngine,
@@ -27,7 +29,6 @@ from adl_lite.evolution.code_engine import (
     make_over_escalate_source,
     pareto_dominates,
     validate_probe_sufficiency,
-    REFERENCE_PLANNER_SOURCE,
 )
 from adl_lite.evolution.code_gates import (
     CalibrationRecord,
@@ -37,7 +38,6 @@ from adl_lite.evolution.code_gates import (
 from adl_lite.evolution.replay import Step, TaskTrace
 from adl_lite.evolution.sandbox import SandboxError, SandboxRunner
 from adl_lite.maat.anchor import AnchorChain
-
 
 # ---------------------------------------------------------------------------
 # Trace space (mirrors experiments/exp_p3_calibration.py)
@@ -326,9 +326,8 @@ class TestCalibration:
 
     def test_record_is_immutable(self):
         record = calib()
-        with pytest.raises(Exception):
-            object.__setattr__  # frozen dataclass: setattr raises FrozenInstanceError
-            record.rho = 0.1
+        with pytest.raises(FrozenInstanceError):
+            record.rho = 0.1  # frozen dataclass: setattr raises FrozenInstanceError
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +578,7 @@ class TestEngineLifecycle:
 
     def test_candidate_is_immutable(self):
         cand = base_candidate()
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             cand.source = "forged"
 
     def test_bench_rotation_detected(self):
