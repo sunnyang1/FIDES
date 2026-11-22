@@ -185,7 +185,7 @@ def test_anchor_history_tamper_evident():
 
 def test_anchor_rotation_governs_new_verdicts():
     eng = ConsensusEngine(dev_mode=True)
-    dids = make_agents(eng, "Ghost")
+    make_agents(eng, "Ghost")
     reg = GovernedTaskRegistry(eng, agents=AgentRegistry(eng))
     # loosen: identity gate off
     relaxed = reg.anchor.model_copy(update={"version": 2, "enforce_identity": False})

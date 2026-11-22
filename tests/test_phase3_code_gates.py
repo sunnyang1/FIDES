@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 
 from adl_lite.evolution.code_gates import (
-    DEFAULT_EVALUATOR_NAMESPACE,
     CalibrationRecord,
     CodeDiff,
     Phase3Gate,

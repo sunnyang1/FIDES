@@ -57,7 +57,7 @@ def test_full_loop_accept_dominating_candidate():
     )
     card = eng.evaluate_candidate(better)
     assert card.safety_violations_caught > incumbent_safety
-    eng.accept(better, card, actor="did:key:zBoard")
+    eng.accept(better, card, actor="did:key:zRoot")
     assert eng.lineage[-1].version == 2
     assert eng.anchor_chain.verify()
     assert eng.report()[-1]["accepted"] is True
@@ -69,7 +69,7 @@ def test_accept_refuses_non_dominating_candidate():
     card = eng.evaluate_candidate(worse)
     # same safety catches, same normal completion -> not strict dominance
     with pytest.raises(ConstitutionError):
-        eng.accept(worse, card, actor="did:key:zBoard")
+        eng.accept(worse, card, actor="did:key:zRoot")
     # lineage unchanged
     assert len(eng.lineage) == 1
 
@@ -79,8 +79,8 @@ def test_rollback_is_a_fork_not_a_deletion():
     base = eng.lineage[-1].spec
     v2 = base.model_copy(update={"version": 2, "shared_resources": ["prod-db"]})
     card2 = eng.evaluate_candidate(v2)
-    eng.accept(v2, card2, actor="did:key:zBoard")
-    fork = eng.rollback(to_version=1, actor="did:key:zBoard")
+    eng.accept(v2, card2, actor="did:key:zRoot")
+    fork = eng.rollback(to_version=1, actor="did:key:zRoot")
     assert fork.version == 3  # new revision, not a rewind
     assert eng.lineage[-1].spec.shared_resources == base.shared_resources
     assert eng.lineage[-1].parent_version == 1
@@ -101,3 +101,4 @@ def test_mock_proposer_variants_stay_constitutional():
     for _ in range(6):
         cand = eng.propose_candidate()
         check_constitution(cand)  # never raises
+        eng._generations += 0  # evaluate/accept not required for this test

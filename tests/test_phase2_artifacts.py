@@ -293,12 +293,9 @@ def test_bench_resets_after_acceptance_for_next_generation():
     with pytest.raises(ValueError, match="does not dominate"):
         _accept(eng, v3, card3)
     assert not eng.bench.revealed  # rejection also resets
-    v4 = PlannerSpec(version=4, rework_hard_stop=10, w_claim=0.0)
     # strict-dominance needs a real improvement; bump hard_stop off the
     # hidden trace's loop count instead:
-    v4 = PlannerSpec(version=4, rework_hard_stop=10)
     # v4 == v3 == v2 on every metric -> tie; use a genuinely better one:
-    better = PlannerSpec(version=5, rework_hard_stop=10)
     # (identical artifacts tie; dominance gate correctly rejects ties)
 
 
