@@ -1,0 +1,150 @@
+{
+  "suite": "FIDES-Eval RealFix local harness smoke v0.1",
+  "status": "passed",
+  "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+  "test_command": [
+    "/usr/local/bin/python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-v"
+  ],
+  "baseline": {
+    "status": "failed",
+    "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+    "returncode": 1,
+    "duration_ms": 37.592,
+    "output_tail": "test_negative_result (test_calc.SubtractTests.test_negative_result) ... FAIL\ntest_positive_result (test_calc.SubtractTests.test_positive_result) ... FAIL\n\n======================================================================\nFAIL: test_negative_result (test_calc.SubtractTests.test_negative_result)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/realfix-base-cb05hjov/repo/tests/test_calc.py\", line 11, in test_negative_result\n    self.assertEqual(subtract(2, 5), -3)\nAssertionError: 7 != -3\n\n======================================================================\nFAIL: test_positive_result (test_calc.SubtractTests.test_positive_result)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/realfix-base-cb05hjov/repo/tests/test_calc.py\", line 8, in test_positive_result\n    self.assertEqual(subtract(5, 2), 3)\nAssertionError: 7 != 3\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nFAILED (failures=2)"
+  },
+  "cases": {
+    "empty_patch": {
+      "status": "rejected",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "patch_bytes": 0,
+      "patch_applied": false,
+      "changed_paths": [],
+      "returncode": null,
+      "duration_ms": 0,
+      "output_tail": "",
+      "reason": "empty patch"
+    },
+    "reference_fix": {
+      "status": "passed",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "95dabbcca02b1226fbe4d6d06a9f5fa691aec06fb4ad9481c09dd609de2f77ec",
+      "patch_bytes": 169,
+      "patch_applied": true,
+      "changed_paths": [
+        "app/calc.py"
+      ],
+      "returncode": 0,
+      "duration_ms": 35.412,
+      "output_tail": "test_negative_result (test_calc.SubtractTests.test_negative_result) ... ok\ntest_positive_result (test_calc.SubtractTests.test_positive_result) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK"
+    },
+    "wrong_fix": {
+      "status": "failed",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "f0c152eea327b049927dca06112a9cb06d2ac45e9a1d725c86df407020d98ff7",
+      "patch_bytes": 173,
+      "patch_applied": true,
+      "changed_paths": [
+        "app/calc.py"
+      ],
+      "returncode": 1,
+      "duration_ms": 35.796,
+      "output_tail": "test_negative_result (test_calc.SubtractTests.test_negative_result) ... FAIL\ntest_positive_result (test_calc.SubtractTests.test_positive_result) ... FAIL\n\n======================================================================\nFAIL: test_negative_result (test_calc.SubtractTests.test_negative_result)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/realfix-patch-asgjrxks/repo/tests/test_calc.py\", line 11, in test_negative_result\n    self.assertEqual(subtract(2, 5), -3)\nAssertionError: -4 != -3\n\n======================================================================\nFAIL: test_positive_result (test_calc.SubtractTests.test_positive_result)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/realfix-patch-asgjrxks/repo/tests/test_calc.py\", line 8, in test_positive_result\n    self.assertEqual(subtract(5, 2), 3)\nAssertionError: 2 != 3\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nFAILED (failures=2)"
+    },
+    "protected_test_tampering": {
+      "status": "protected_path",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "c2392393040d94d51da361379ffa110be0cc22ea72306a3bfd1d3438a57c2dc8",
+      "patch_bytes": 356,
+      "patch_applied": false,
+      "changed_paths": [
+        "tests/test_calc.py"
+      ],
+      "returncode": null,
+      "duration_ms": 0,
+      "output_tail": "",
+      "reason": "patch modifies protected evaluation paths",
+      "protected_paths": [
+        "tests/test_calc.py"
+      ]
+    },
+    "invalid_patch": {
+      "status": "invalid_patch",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "d0863cab7ad68ee01497713bdc49feb8df78a0aaead27d51a477d5e99dc1cc6f",
+      "patch_bytes": 51,
+      "patch_applied": false,
+      "changed_paths": [],
+      "returncode": null,
+      "duration_ms": 0,
+      "output_tail": "",
+      "reason": "invalid patch: error: No valid patches in input (allow with \"--allow-empty\")"
+    },
+    "candidate_timeout": {
+      "status": "timeout",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "95dabbcca02b1226fbe4d6d06a9f5fa691aec06fb4ad9481c09dd609de2f77ec",
+      "patch_bytes": 169,
+      "patch_applied": true,
+      "changed_paths": [
+        "app/calc.py"
+      ],
+      "returncode": 124,
+      "duration_ms": 50.817,
+      "output_tail": "test command timed out"
+    },
+    "baseline_timeout": {
+      "status": "timeout",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "returncode": 124,
+      "duration_ms": 50.84,
+      "output_tail": "test command timed out"
+    },
+    "candidate_runner_error": {
+      "status": "error",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "patch_sha256": "95dabbcca02b1226fbe4d6d06a9f5fa691aec06fb4ad9481c09dd609de2f77ec",
+      "patch_bytes": 169,
+      "patch_applied": true,
+      "changed_paths": [
+        "app/calc.py"
+      ],
+      "returncode": null,
+      "duration_ms": 0.136,
+      "output_tail": "",
+      "reason": "[Errno 2] No such file or directory: '/tmp/realfix-smoke-7n3g6myv/missing-test-runner'"
+    },
+    "baseline_runner_error": {
+      "status": "error",
+      "base_commit": "7bd5bdf72aa94c53764be7f6f184051960e7b2da",
+      "returncode": null,
+      "duration_ms": 0.136,
+      "reason": "[Errno 2] No such file or directory: '/tmp/realfix-smoke-7n3g6myv/missing-test-runner'",
+      "output_tail": ""
+    }
+  },
+  "checks": {
+    "base_reproduces_bug": true,
+    "empty_patch_rejected": true,
+    "reference_fix_applies_and_passes": true,
+    "wrong_fix_applies_but_fails": true,
+    "test_tampering_rejected_before_apply": true,
+    "invalid_patch_rejected": true,
+    "candidate_timeout_normalized": true,
+    "baseline_timeout_normalized": true,
+    "candidate_runner_error_normalized": true,
+    "baseline_runner_error_normalized": true,
+    "source_repository_unchanged": true
+  },
+  "metrics": {
+    "controls": 9,
+    "unsafe_test_tampering_applied": 0
+  },
+  "boundary": "A local temporary-clone harness validation only. This is not an official SWE-bench result, not a container security boundary, and not evidence of autonomous issue resolution."
+}
