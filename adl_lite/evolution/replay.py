@@ -18,14 +18,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from datetime import UTC
+from typing import Any, Protocol
 
-from ..agents.identity import AgentProfile, AgentRegistry, AgentRole
-from ..agents.task import TaskStatus, derive_task_status
-from ..consensus import ConsensusEngine
-from ..exceptions import GateViolation
-from ..maat import AnchorSpec, GovernedTaskRegistry
-
+from ..agents.task import TaskStatus
 
 # ---------------------------------------------------------------------------
 # Task traces — the raw material of replay
@@ -205,7 +201,7 @@ class HeldOutBench:
         self._commit_seal()
 
     @staticmethod
-    def artifact_content_hash(spec: "PlannerSpec") -> str:
+    def artifact_content_hash(spec: PlannerSpec) -> str:
         return _hash({"name": spec.name, "version": spec.version,
                       "w_claim": spec.w_claim, "w_rework": spec.w_rework,
                       "w_shared": spec.w_shared,
@@ -219,16 +215,17 @@ class HeldOutBench:
             for t in self.held_out]})
 
     def _payload_hash_from(self, frozen_map: dict[int, str]) -> str:
+        cands: list[dict[str, Any]] = [
+            {"version": v, "content_hash": h}
+            for v, h in frozen_map.items()]
         payload = {
-            "candidates": sorted(
-                [{"version": v, "content_hash": h}
-                 for v, h in frozen_map.items()], key=lambda d: d["version"]),
+            "candidates": sorted(cands, key=lambda d: d["version"]),
             "held_out_hash": self._frozen_held_out_hash,
             "held_out": [t.name for t in self.held_out],
         }
         return _hash(payload)
 
-    def _commit_seal(self, candidates: list["PlannerSpec"] | None = None) -> str:
+    def _commit_seal(self, candidates: list[PlannerSpec] | None = None) -> str:
         self._frozen_held_out_hash = self._held_out_content_hash()
         if candidates is not None:
             self._frozen_candidates = {
@@ -359,7 +356,7 @@ class ArtifactScorecard:
     def missed_escalations(self) -> int:
         return sum(r["missed_escalations"] for r in self.public_results + self.held_out_results)
 
-    def dominates(self, other: "ArtifactScorecard") -> bool:
+    def dominates(self, other: ArtifactScorecard) -> bool:
         return (
             self.clean_held_out >= other.clean_held_out
             and self.missed_escalations <= other.missed_escalations
@@ -468,7 +465,6 @@ class ArtifactEvolutionEngine:
             card = ArtifactScorecard(candidate.version)
             card.public_results = self.bench.evaluate(candidate, self.bench.public_traces)
             card.commitment_ok = self._verify_seal()
-            incumbent = self.lineage[-1]
             card.dominates_incumbent = card.dominates(
                 self._incumbent_card(candidate)
             )
@@ -603,7 +599,7 @@ class ArtifactEvolutionEngine:
         Entries carry seq/UTC/actor so 'who approved what, when' is
         answerable from the chain."""
         import hashlib
-        from datetime import datetime, timezone
+        from datetime import datetime
         self._seq += 1
         entry: dict[str, Any] = {
             "seq": self._seq,
@@ -613,7 +609,7 @@ class ArtifactEvolutionEngine:
             "actor": actor,
             "risk": diff_risk(self.lineage[-1].artifact, candidate),
             "trust": self.lineage[-1].trust_score,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": datetime.now(UTC).isoformat(),
         }
         prev = self.audit_log[-1]["hash"] if self.audit_log else "GENESIS"
         entry["prev"] = prev

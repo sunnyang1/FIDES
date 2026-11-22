@@ -22,8 +22,9 @@ Design invariants (see docs/governed-evolution.md):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from ..agents.identity import AgentProfile, AgentRegistry, AgentRole
 from ..agents.task import TaskStatus
@@ -102,7 +103,7 @@ def _seed_agents(engine: ConsensusEngine, *names: str) -> dict[str, str]:
     return dids
 
 
-def scenario_normal(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioResult":
+def scenario_normal(engine: ConsensusEngine, anchor: AnchorSpec) -> ScenarioResult:
     """Green path: full lifecycle closes cleanly."""
     dids = _seed_agents(engine, "Alice", "Val")
     reg = GovernedTaskRegistry(engine, anchor=anchor, agents=AgentRegistry(engine))
@@ -122,7 +123,7 @@ def scenario_normal(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioRes
     )
 
 
-def scenario_pingpong(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioResult":
+def scenario_pingpong(engine: ConsensusEngine, anchor: AnchorSpec) -> ScenarioResult:
     """Adversarial: two agents bounce a task forever. A good anchor halts it."""
     dids = _seed_agents(engine, "A1", "V1")
     reg = GovernedTaskRegistry(engine, anchor=anchor, agents=AgentRegistry(engine))
@@ -150,7 +151,7 @@ def scenario_pingpong(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioR
     )
 
 
-def scenario_orphan(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioResult":
+def scenario_orphan(engine: ConsensusEngine, anchor: AnchorSpec) -> ScenarioResult:
     """Poison 2: forged parent must never mint a live task."""
     reg = GovernedTaskRegistry(engine, anchor=anchor, agents=AgentRegistry(engine))
     blocked = 0
@@ -172,7 +173,7 @@ def scenario_orphan(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioRes
     )
 
 
-def scenario_contention(engine: ConsensusEngine, anchor: AnchorSpec) -> "ScenarioResult":
+def scenario_contention(engine: ConsensusEngine, anchor: AnchorSpec) -> ScenarioResult:
     """Shared resource: second claim on a held shared object must be refused."""
     dids = _seed_agents(engine, "A1", "A2")
     reg = GovernedTaskRegistry(engine, anchor=anchor, agents=AgentRegistry(engine))
@@ -195,7 +196,7 @@ def scenario_contention(engine: ConsensusEngine, anchor: AnchorSpec) -> "Scenari
     )
 
 
-DEFAULT_SCENARIOS: list[Callable[[ConsensusEngine, AnchorSpec], "ScenarioResult"]] = [
+DEFAULT_SCENARIOS: list[Callable[[ConsensusEngine, AnchorSpec], ScenarioResult]] = [
     scenario_normal,
     scenario_pingpong,
     scenario_orphan,
@@ -234,7 +235,7 @@ class CandidateScorecard:
     def normal_completed(self) -> bool:
         return all(r.completed for r in self.results if r.name == "normal")
 
-    def dominates(self, other: "CandidateScorecard") -> bool:
+    def dominates(self, other: CandidateScorecard) -> bool:
         """Safety never regresses, capability never regresses."""
         return (
             self.normal_completed >= other.normal_completed
