@@ -833,13 +833,23 @@ class CodeEvolutionEngine:
                 f"{route}")
 
         held = self.bench.reveal()
-        results = self.runner.run_planner(candidate.source, held)
-        lat_held = self.runner.last_run_ms
-        card.held_out_verdicts = verdicts_from_results(results, held,
-                                                       self.bench.eval_hard_stop)
-        card.latency_ms += lat_held
+        try:
+            results = self.runner.run_planner(candidate.source, held)
+            lat_held = self.runner.last_run_ms
+            card.held_out_verdicts = verdicts_from_results(results, held,
+                                                           self.bench.eval_hard_stop)
+            card.latency_ms += lat_held
 
-        inc_miss, inc_spur, inc_lat = self._incumbent_totals()
+            inc_miss, inc_spur, inc_lat = self._incumbent_totals()
+        except SandboxError as exc:
+            # Execution/infrastructure failure is a rejected generation, not a
+            # permanently revealed bench. Restore the incumbent seal so the
+            # engine remains usable and the rejection is independently auditable.
+            self._record_rejection(candidate, card, route, actor,
+                                   "held-out execution failed")
+            raise ValueError(
+                "held-out execution failed; candidate rejected and bench resealed"
+            ) from exc
         card.dominates_incumbent, card.latency_regressed = dominance_with_latency(
             card.total_misses, card.total_spurious, card.latency_ms,
             inc_miss, inc_spur, inc_lat)
@@ -956,11 +966,13 @@ class CodeEvolutionEngine:
             if entry["hash"] != hashlib.sha256(canonical.encode()).hexdigest():
                 return False
         if self.anchor_chain is not None:
+            if not self.anchor_chain.verify():  # type: ignore[attr-defined]
+                return False
             anchored = [e for e in self.anchor_chain.revisions  # type: ignore[attr-defined]
                         if "event" in e]
             if len(anchored) != len(self.audit_log):
                 return False
-            for entry, a in zip(self.audit_log, anchored):
+            for entry, a in zip(self.audit_log, anchored, strict=True):
                 if a["event"] != entry:
                     return False
         return True
