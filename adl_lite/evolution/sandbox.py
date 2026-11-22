@@ -28,10 +28,9 @@ The candidate source must define ``def plan(trace) -> list[str]`` where
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .replay import TaskTrace
@@ -213,6 +212,7 @@ class SandboxRunner:
                 timeout=self.timeout,
                 env={"PYTHONHASHSEED": "0"},
                 start_new_session=True,
+                check=False,  # returncode inspected explicitly below
             )
         except subprocess.TimeoutExpired as e:
             raise SandboxTimeout(

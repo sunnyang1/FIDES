@@ -1,20 +1,11 @@
-"""Structured logging configuration for ADL Lite.
-
-Provides a default logger that can be configured via environment variables:
-    ADL_LOG_LEVEL  — logging level (DEBUG, INFO, WARNING, ERROR; default: INFO)
-    ADL_LOG_FORMAT — output format (json, text; default: text)
-"""
+"""Structured logging configuration for ADL Lite."""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
-from datetime import datetime, timezone
-
-# ---------------------------------------------------------------------------
-# Default logger
-# ---------------------------------------------------------------------------
+from datetime import UTC, datetime
 
 
 def _get_level() -> int:
@@ -38,7 +29,7 @@ class _JsonFormatter(logging.Formatter):
         import json
 
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -55,21 +46,11 @@ if not _logger.handlers:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(_make_formatter(os.environ.get("ADL_LOG_FORMAT", "text")))
     _logger.addHandler(handler)
-    _logger.propagate = False  # Don't duplicate to root logger
+    _logger.propagate = False
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
-    """Return a child logger under the adl_lite namespace.
-
-    Args:
-        name: Sub-logger name (e.g. "parser", "consensus"). If None, returns root adl_lite logger.
-            A fully-qualified module name (``__name__``, e.g. "adl_lite.parser" or
-            "adl_lite.fde.rule_engine") is used as-is, without double-prefixing.
-
-    Example:
-        >>> logger = get_logger("parser")
-        >>> logger.info("Parsing document %s", doc_path)
-    """
+    """Return a child logger under the adl_lite namespace."""
     if name:
         if name == "adl_lite" or name.startswith("adl_lite."):
             return logging.getLogger(name)

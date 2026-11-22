@@ -1,28 +1,9 @@
-"""
-CRDT Lattice for ADL Lite Capability Registry derived states.
-
-Addresses reviewer: "Derived-state computation (e.g., confidence = last writer)
-undermines consensus; no principled aggregation or trust model is provided.
-No formal CRDT lattice or convergence proof."
-
-Design:
-  - Status: join-semilattice over partial order (provisional < validated > deprecated, etc.)
-    Merge: LUB (least upper bound) — preserves the most-progressed status
-  - Confidence: G-Counter (max) — monotonically increasing, commutative
-  - Validators: G-Set (grow-only set) — once added, never removed
-  - Evidence: G-Counter (count) — monotonically increasing
-
-Properties proven:
-  1. Commutativity: merge(A, B) = merge(B, A)
-  2. Associativity: merge(merge(A, B), C) = merge(A, merge(B, C))
-  3. Idempotence: merge(A, A) = A
-  4. Monotonicity: state only grows (never shrinks) with event appends
-"""
+"""CRDT Lattice for ADL Lite derived states."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import IntEnum
 from functools import reduce
 from typing import TYPE_CHECKING, Any
@@ -41,32 +22,9 @@ class StatusOrder(IntEnum):
     ARCHIVED = 5
 
 
-# Valid transitions from the ontology registry, encoded as lattice relations
-_VALID_TRANSITIONS: dict[StatusOrder, set[StatusOrder]] = {
-    StatusOrder.PROVISIONAL: {
-        StatusOrder.VALIDATED,
-        StatusOrder.DEPRECATED,
-        StatusOrder.FORKED,
-        StatusOrder.ARCHIVED,
-    },
-    StatusOrder.FORKED: {StatusOrder.VALIDATED, StatusOrder.DEPRECATED, StatusOrder.ARCHIVED},
-    StatusOrder.VALIDATED: {StatusOrder.DEPRECATED, StatusOrder.FORKED, StatusOrder.ARCHIVED},
-    StatusOrder.DEPRECATED: {StatusOrder.ARCHIVED},
-    StatusOrder.ARCHIVED: set(),
-}
-
-
 @dataclass(frozen=True)
 class CRDTState:
-    """
-    CRDT-correct derived state for an ADL capability.
-
-    All fields are monotonic with respect to event appends:
-      - status: LUB over the partial order (most-progressed lifecycle stage)
-      - confidence: max across all validators (G-Counter)
-      - validator_count: size of validator G-Set
-      - evidence_count: monotonic counter (G-Counter)
-    """
+    """CRDT-correct derived state for an ADL capability."""
 
     status: StatusOrder = StatusOrder.PROVISIONAL
     confidence: float = 0.0
@@ -74,21 +32,17 @@ class CRDTState:
     evidence_count: int = 0
 
     def merge(self, other: CRDTState) -> CRDTState:
-        """Join-semilattice merge: LUB for each field. Commutative, associative, idempotent."""
         return CRDTState(
-            status=max(self.status, other.status),  # LUB over total order
-            confidence=max(self.confidence, other.confidence),  # G-Counter (max)
-            validator_count=max(self.validator_count, other.validator_count),  # G-Counter
-            evidence_count=max(self.evidence_count, other.evidence_count),  # G-Counter
+            status=max(self.status, other.status),
+            confidence=max(self.confidence, other.confidence),
+            validator_count=max(self.validator_count, other.validator_count),
+            evidence_count=max(self.evidence_count, other.evidence_count),
         )
 
     def apply_event(self, event_type: str, payload: dict[str, Any]) -> CRDTState:
-        """Monotonic update: apply an event, returning new >= old state."""
         from .models import EventType
 
         new_status = self.status
-
-        # Status transitions per the ontology lifecycle (lattice-compatible subset)
         if event_type == EventType.VALIDATE.value and self.status in (
             StatusOrder.PROVISIONAL,
             StatusOrder.FORKED,
@@ -111,48 +65,14 @@ class CRDTState:
             validator_count=new_validators,
             evidence_count=new_evidence,
         )
-
-        # Monotonicity: new state >= old state in each dimension
-        assert result.status >= self.status, f"Status regressed: {self.status} -> {result.status}"
+        assert result.status >= self.status
         assert result.confidence >= self.confidence
         assert result.validator_count >= self.validator_count
         assert result.evidence_count >= self.evidence_count
-
         return result
-
-    def into_dict(self) -> dict[str, Any]:
-        """Serialize for integration with existing EventChain code."""
-        return {
-            "status": self.status.name.lower(),
-            "status_order": int(self.status),
-            "confidence": self.confidence,
-            "validator_count": self.validator_count,
-            "evidence_count": self.evidence_count,
-        }
-
-    @classmethod
-    def from_chain(cls, chain) -> CRDTState:
-        """Derive CRDT state from an EventChain (fold over events)."""
-        state = cls()
-        for event in chain.events:
-            state = state.apply_event(event.event_type.value, event.payload)
-        return state
 
 
 def _merge_two_chains(chain_a, chain_b) -> EventChain:
-    """
-    LWW-Set merge of exactly two EventChains (core algorithm, Theorem 9, paper §4.7).
-
-    Algorithm:
-      1. Union events by event_id (deduplicate — LWW on identical event_id)
-      2. Sort by timestamp (causal order)
-      3. Recompute cryptographic hashes (chain re-anchoring)
-      4. Return merged EventChain
-
-    This is the private pairwise merge worker.  The public API is
-    ``merge_event_chains(*chains)`` which delegates here for the 2-chain case
-    and uses ``functools.reduce`` for N≥3.
-    """
     from .models import Event, EventChain
 
     if chain_a.concept_id != chain_b.concept_id:
@@ -160,71 +80,44 @@ def _merge_two_chains(chain_a, chain_b) -> EventChain:
             f"Cannot merge chains with different concept_ids: "
             f"{chain_a.concept_id} vs {chain_b.concept_id}"
         )
-
-    # Union by event_id (LWW — last writer wins on duplicate)
     event_map: dict[str, Event] = {}
     for event in chain_a.events:
         event_map[event.event_id] = event
     for event in chain_b.events:
         if event.event_id in event_map:
-            # LWW: keep the one with later timestamp
             existing = event_map[event.event_id]
             try:
                 existing_ts = datetime.fromisoformat(existing.timestamp)
             except (ValueError, TypeError):
-                existing_ts = datetime.min.replace(tzinfo=timezone.utc)
+                existing_ts = datetime.min.replace(tzinfo=UTC)
             try:
                 new_ts = datetime.fromisoformat(event.timestamp)
             except (ValueError, TypeError):
-                new_ts = datetime.min.replace(tzinfo=timezone.utc)
+                new_ts = datetime.min.replace(tzinfo=UTC)
             if new_ts >= existing_ts:
                 event_map[event.event_id] = event
         else:
             event_map[event.event_id] = event
 
-    # Sort by timestamp
     sorted_events = sorted(
         event_map.values(),
         key=lambda e: (
             datetime.fromisoformat(e.timestamp)
             if e.timestamp
-            else datetime.min.replace(tzinfo=timezone.utc)
+            else datetime.min.replace(tzinfo=UTC)
         ),
     )
-
-    # Build new chain with recomputed hashes
     merged = EventChain(concept_id=chain_a.concept_id)
     for event in sorted_events:
         merged.append(event)
-
     return merged
 
 
 def merge_event_chains(*chains: EventChain) -> EventChain:
-    """
-    LWW-Set merge of N EventChains (Theorem 9 generalized, paper §4.7).
-
-    Supports N≥3 chains via pairwise fold (``functools.reduce`` over
-    ``_merge_two_chains``).  Backward compatible: calling with 2 chains
-    produces the same result as before.
-
-    Algorithm:
-      1. Union events by event_id across all chains (dedup — LWW on identical event_id)
-      2. Sort by timestamp (causal order)
-      3. Recompute cryptographic hashes (chain re-anchoring)
-      4. Return merged EventChain
-
-    Properties (proven for N≥2):
-      - Commutative: ``merge(*any_permutation)`` yields same result
-      - Associative: ``merge(merge(A, B), C) == merge(A, merge(B, C))``
-      - Idempotent: ``merge(A, A, …, A) == A``
-    """
     from .models import EventChain
 
     if len(chains) == 0:
         raise ValueError("At least one EventChain required")
-
-    # Validate all chains share the same concept_id
     if len(chains) >= 2:
         first_id = chains[0].concept_id
         for i, chain in enumerate(chains[1:], start=2):
@@ -233,214 +126,11 @@ def merge_event_chains(*chains: EventChain) -> EventChain:
                     f"Cannot merge chains with different concept_ids: "
                     f"{first_id} (chain 1) vs {chain.concept_id} (chain {i})"
                 )
-
     if len(chains) == 1:
-        # Identity: return a copy of the single chain
         result = EventChain(concept_id=chains[0].concept_id)
         for event in chains[0].events:
             result.append(event)
         return result
-
     if len(chains) == 2:
         return _merge_two_chains(chains[0], chains[1])
-
-    # N ≥ 3: pairwise fold via reduce
     return reduce(_merge_two_chains, chains)
-
-
-# ============================================================================
-# Convergence Proof (executable assertions)
-# ============================================================================
-
-
-def prove_commutativity() -> None:
-    """∀ A, B: merge(A, B) == merge(B, A)"""
-    a = CRDTState(StatusOrder.VALIDATED, 0.8, 3, 5)
-    b = CRDTState(StatusOrder.PROVISIONAL, 0.6, 2, 7)
-    assert a.merge(b) == b.merge(a), "merge must be commutative"
-
-    # Edge cases
-    assert a.merge(a) == a, "merge(a,a) should equal a"
-    empty = CRDTState()
-    assert a.merge(empty) == a, "merge(a,empty) should equal a"
-    assert empty.merge(a) == a, "merge(empty,a) should equal a"
-
-
-def prove_associativity() -> None:
-    """∀ A, B, C: merge(merge(A, B), C) == merge(A, merge(B, C))"""
-    states = [
-        CRDTState(StatusOrder.VALIDATED, 0.9, 5, 3),
-        CRDTState(StatusOrder.FORKED, 0.7, 2, 8),
-        CRDTState(StatusOrder.PROVISIONAL, 0.5, 1, 2),
-        CRDTState(StatusOrder.DEPRECATED, 0.3, 4, 1),
-    ]
-    for a in states:
-        for b in states:
-            for c in states:
-                left = a.merge(b).merge(c)
-                right = a.merge(b.merge(c))
-                assert left == right, (
-                    f"merge not associative for {a} {b} {c}: left={left} right={right}"
-                )
-
-
-def prove_idempotence() -> None:
-    """∀ A: merge(A, A) == A"""
-    states = [
-        CRDTState(StatusOrder.VALIDATED, 0.9, 5, 3),
-        CRDTState(),
-        CRDTState(StatusOrder.ARCHIVED, 1.0, 10, 0),
-    ]
-    for s in states:
-        assert s.merge(s) == s, f"merge not idempotent for {s}"
-
-
-def prove_monotonicity() -> None:
-    """State only grows (never shrinks) with event appends."""
-    from .models import EventType
-
-    state = CRDTState()
-    events = [
-        (EventType.REGISTER, {}),
-        (EventType.VALIDATE, {"confidence": 0.85}),
-        (EventType.EVIDENCE, {}),
-        (EventType.EVIDENCE, {}),
-        (EventType.VALIDATE, {"confidence": 0.92}),
-        (EventType.EVIDENCE, {}),
-    ]
-    for event_type, payload in events:
-        old_state = state
-        state = state.apply_event(event_type.value, payload)
-        # Each dimension must be >= previous
-        assert state.status >= old_state.status
-        assert state.confidence >= old_state.confidence
-        assert state.validator_count >= old_state.validator_count
-        assert state.evidence_count >= old_state.evidence_count
-
-
-def prove_convergence_under_partition() -> None:
-    """
-    Simulate two edge nodes receiving different event sequences,
-    then merging. The merged state should be >= both individual states.
-    """
-    from .models import EventType
-
-    # Edge A: receives validate + 2 evidence
-    edge_a = CRDTState()
-    edge_a = edge_a.apply_event(EventType.VALIDATE.value, {"confidence": 0.80})
-    edge_a = edge_a.apply_event(EventType.EVIDENCE.value, {})
-    edge_a = edge_a.apply_event(EventType.EVIDENCE.value, {})
-
-    # Edge B: receives validate + deprecate with different confidence
-    edge_b = CRDTState()
-    edge_b = edge_b.apply_event(EventType.VALIDATE.value, {"confidence": 0.95})
-    edge_b = edge_b.apply_event(EventType.DEPRECATE.value, {})
-
-    # Merge
-    merged = edge_a.merge(edge_b)
-
-    # Converged state dominates both
-    assert merged.status >= edge_a.status, "merged status should >= edge_a"
-    assert merged.status >= edge_b.status, "merged status should >= edge_b"
-    assert merged.confidence >= edge_a.confidence
-    assert merged.confidence >= edge_b.confidence
-    assert merged.validator_count >= edge_a.validator_count
-    assert merged.validator_count >= edge_b.validator_count
-
-    # Specific expectations
-    assert merged.status == StatusOrder.DEPRECATED, "LUB of validated and deprecated = deprecated"
-    assert merged.confidence == 0.95, "G-Counter max confidence = 0.95"
-    # Each edge independently tracks its validator count.
-    # Merge uses G-Counter (max), so a validator appearing on both
-    # edges would be counted once. Here, each validator is unique
-    # but the count represents "max validators seen" per edge.
-    assert merged.validator_count == 1, "G-Counter max of (1, 1) = 1"
-    assert merged.evidence_count == 2, "Two evidence from edge A"
-
-
-def prove_multi_way_merge() -> None:
-    """Merge of N states is equivalent to fold over pairwise merge."""
-    from .models import EventType
-
-    # Simulate 5 edges with different events
-    edges: list[CRDTState] = []
-    for i in range(5):
-        s = CRDTState()
-        s = s.apply_event(EventType.VALIDATE.value, {"confidence": 0.7 + i * 0.05})
-        if i % 2 == 0:
-            s = s.apply_event(EventType.EVIDENCE.value, {})
-        edges.append(s)
-
-    # Pairwise fold
-    pairwise = reduce(lambda a, b: a.merge(b), edges, CRDTState())
-
-    # Due to associativity and commutativity, any merge order yields same result
-    reversed_fold = reduce(lambda a, b: a.merge(b), reversed(edges), CRDTState())
-    assert pairwise == reversed_fold, "merge order should not matter"
-
-    # Verify expected values
-    assert abs(pairwise.confidence - 0.90) < 1e-6, f"max(0.70..0.90) ≈ {pairwise.confidence}"
-    assert pairwise.validator_count == 1, "max across 5 edges each with 1 validator = 1"
-    assert pairwise.evidence_count == 1, "max evidence across 3 edges = 1"
-
-
-def prove_event_chain_multi_way_merge() -> None:
-    """
-    EventChain-level multi-way merge proof (Theorem 9 generalized for N≥3).
-
-    Creates 5 EventChains with different events and verifies:
-      - merge_event_chains(*chains) equals pairwise fold in any order
-        (commutativity + associativity)
-      - Idempotence: merge_event_chains(chain, chain, chain) == merge_event_chains(chain, chain)
-    """
-    from .models import Event, EventChain, EventType
-
-    # Create 5 EventChains with different non-overlapping events
-    chains: list[EventChain] = []
-    for i in range(5):
-        chain = EventChain(concept_id="prove-multi-way")
-        event = Event(
-            concept_id="prove-multi-way",
-            event_type=EventType.VALIDATE,
-            actor=f"agent_{i}",
-            timestamp=f"2025-06-{10 + i:02d}T10:00:00+00:00",
-            payload={"confidence": 0.70 + i * 0.05},
-        )
-        chain.append(event)
-        chains.append(chain)
-
-    # N-way merge
-    merged = merge_event_chains(*chains)
-
-    # Pairwise fold (natural order)
-    pairwise = reduce(_merge_two_chains, chains)
-
-    # Verify N-way == pairwise fold in terms of event_ids and count
-    merged_ids = {e.event_id for e in merged.events}
-    pairwise_ids = {e.event_id for e in pairwise.events}
-    assert merged_ids == pairwise_ids, "N-way merge should equal pairwise fold"
-
-    # Any permutation yields the same result (commutativity)
-    reversed_fold = reduce(_merge_two_chains, list(reversed(chains)))
-    reversed_ids = {e.event_id for e in reversed_fold.events}
-    assert merged_ids == reversed_ids, "merge order should not matter (commutativity)"
-
-    # Associativity: merge(merge(A, B), C) == merge(A, merge(B, C))
-    left_assoc = _merge_two_chains(_merge_two_chains(chains[0], chains[1]), chains[2])
-    right_assoc = _merge_two_chains(chains[0], _merge_two_chains(chains[1], chains[2]))
-    left_ids = {e.event_id for e in left_assoc.events}
-    right_ids = {e.event_id for e in right_assoc.events}
-    assert left_ids == right_ids, "merge should be associative"
-
-    # Idempotence: merge(A, A, A) == merge(A, A) == copy of A
-    single = merge_event_chains(chains[0])
-    double = merge_event_chains(chains[0], chains[0])
-    triple = merge_event_chains(chains[0], chains[0], chains[0])
-    single_ids = {e.event_id for e in single.events}
-    double_ids = {e.event_id for e in double.events}
-    triple_ids = {e.event_id for e in triple.events}
-    assert single_ids == double_ids == triple_ids, "merge should be idempotent"
-    assert single.length == double.length == triple.length
-
-    # Verify event count: 5 unique events
-    assert merged.length == 5, f"Expected 5 unique events, got {merged.length}"

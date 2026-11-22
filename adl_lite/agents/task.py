@@ -1,19 +1,8 @@
-"""Task lifecycle as EventChains (M2).
-
-Dual-state semantics (first-principles): RESULT state (SUBMITTED/VALIDATED/
-CLOSED...) is DERIVED from the chain and is the only source of truth; claim
-leases and runtime state are volatile caches owned by ``agents.bus.TaskQueue``
-and are intentionally NOT chain-backed (a lease is a process, not a fact).
-
-Capability vocabulary (P1-3): ``required_capabilities`` values must come from
-the ontology predicate set OR registered discovery chain ids — matching the
-vocabulary used by agent.capabilities and TaskQueue.dequeue.
-"""
+"""Task lifecycle as EventChains (M2) — verbatim core from upstream adl-lite."""
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 from enum import Enum
 from typing import Any, Literal
 
@@ -39,20 +28,15 @@ class TaskStatus(str, Enum):
 _TASK_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.OPEN: {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.CLOSED},
     TaskStatus.ASSIGNED: {TaskStatus.IN_PROGRESS},
-    # IN_PROGRESS -> IN_PROGRESS is an IDEMPOTENT re-claim: when a runtime
-    # execution fails (or a human checkpoint rejects), the chain keeps the
-    # earlier TASK_CLAIM and the lease is released back to the queue; the next
-    # dequeue re-claims the same task to retry (M3 recovery semantics).
     TaskStatus.IN_PROGRESS: {TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED},
     TaskStatus.SUBMITTED: {TaskStatus.VALIDATED, TaskStatus.REJECTED},
-    TaskStatus.REJECTED: {TaskStatus.IN_PROGRESS, TaskStatus.CLOSED},  # rework loop
+    TaskStatus.REJECTED: {TaskStatus.IN_PROGRESS, TaskStatus.CLOSED},
     TaskStatus.VALIDATED: {TaskStatus.CLOSED},
     TaskStatus.CLOSED: set(),
 }
 
 
 def _event_to_status(et: EventType, payload: dict[str, Any]) -> TaskStatus | None:
-    """Map a task event to the resulting status (None = no status change)."""
     if et == EventType.TASK_CREATE:
         return TaskStatus.OPEN
     if et == EventType.TASK_ASSIGN:
@@ -68,9 +52,7 @@ def _event_to_status(et: EventType, payload: dict[str, Any]) -> TaskStatus | Non
     return None
 
 
-def derive_task_status(events: Iterable[Event]) -> TaskStatus:
-    """Deterministic ordered fold (not a pure LUB — rework needs REJECTED →
-    SUBMITTED re-entry). O(n), result state only."""
+def derive_task_status(events) -> TaskStatus:
     status = TaskStatus.OPEN
     for e in events:
         s = _event_to_status(e.event_type, e.payload)
@@ -80,9 +62,6 @@ def derive_task_status(events: Iterable[Event]) -> TaskStatus:
 
 
 class TaskStatusView:
-    """Cached result-status derivation over a task chain (chain itself
-    untouched). Cache is invalidated by the tail hash."""
-
     def __init__(self, chain: EventChain) -> None:
         self._chain = chain
         self._key: str | None = None
@@ -106,7 +85,6 @@ class TaskStatusView:
 
     @property
     def result_ref(self) -> str | None:
-        """Latest TASK_SUBMIT result reference (P1-5)."""
         ref: str | None = None
         for e in self._chain.events:
             if e.event_type == EventType.TASK_SUBMIT:
@@ -115,10 +93,6 @@ class TaskStatusView:
 
 
 class Task(BaseModel):
-    """Task view. ``status`` is a snapshot; the authoritative value is
-    ``derive_task_status`` over the chain. ``lease_until`` is a volatile
-    runtime snapshot — never a source of truth."""
-
     task_id: str
     objective: str
     required_capabilities: list[str] = Field(default_factory=list)
@@ -134,20 +108,10 @@ class Task(BaseModel):
 
 
 class TaskRegistry:
-    """Task lifecycle over a ConsensusEngine.
-
-    Capability vocabulary (P1-3): required_capabilities must be ontology
-    predicates or registered discovery chain ids — the SAME vocabulary used by
-    agent.capabilities and TaskQueue.dequeue, so planner validation and queue
-    matching never diverge.
-    """
+    """Task lifecycle over a ConsensusEngine (baseline, pre-Maat)."""
 
     def __init__(self, engine: ConsensusEngine | None = None) -> None:
         self.engine = engine or ConsensusEngine(dev_mode=True)
-
-    # ------------------------------------------------------------------
-    # Vocabulary (P1-3)
-    # ------------------------------------------------------------------
 
     def _is_known_capability(self, capability: str) -> bool:
         om = default_ontology()
@@ -166,10 +130,6 @@ class TaskRegistry:
         )
         return sorted(caps)
 
-    # ------------------------------------------------------------------
-    # Lifecycle (all events appended to chain `task:<uuid>`)
-    # ------------------------------------------------------------------
-
     def create_task(
         self,
         objective: str,
@@ -182,7 +142,7 @@ class TaskRegistry:
         input_ref: str | None = None,
         db_ref: str | None = None,
     ) -> Task:
-        task_id = f"task:{uuid.uuid4().hex}"  # namespace: never collides with discovery ids
+        task_id = f"task:{uuid.uuid4().hex}"
         genesis = Event(
             concept_id=task_id,
             event_type=EventType.TASK_CREATE,
@@ -216,10 +176,6 @@ class TaskRegistry:
         return self._append(task_id, EventType.TASK_ASSIGN, actor, {"agent_did": agent_did})
 
     def claim(self, task_id: str, agent_did: str) -> Event:
-        """Claim only appends the chain event; lease atomicity lives in
-        TaskQueue (volatile runtime state). IDEMPOTENT: re-claiming a task
-        already IN_PROGRESS is legal (execution-retry recovery, M3); the
-        queue lease is what enforces at-most-one among live workers."""
         self._guard_transition(task_id, TaskStatus.IN_PROGRESS)
         return self._append(task_id, EventType.TASK_CLAIM, agent_did, {"agent_did": agent_did})
 
@@ -231,8 +187,6 @@ class TaskRegistry:
         summary: str = "",
         confidence: float = 0.5,
     ) -> Event:
-        """``result_ref`` = adl_id of the produced capability chain (should be
-        registered via engine.register first)."""
         self._guard_transition(task_id, TaskStatus.SUBMITTED)
         return self._append(
             task_id,
@@ -249,7 +203,6 @@ class TaskRegistry:
         confidence: float = 0.8,
         critique: str = "",
     ) -> Event:
-        """Accept/reject a submission (drives SUBMITTED→VALIDATED/REJECTED)."""
         target = TaskStatus.VALIDATED if accepted else TaskStatus.REJECTED
         self._guard_transition(task_id, target)
         return self._append(
@@ -270,10 +223,6 @@ class TaskRegistry:
         return self._append(
             task_id, EventType.TASK_CLOSE, actor, {"outcome": outcome, "reason": reason}
         )
-
-    # ------------------------------------------------------------------
-    # Derived queries
-    # ------------------------------------------------------------------
 
     def get_task(self, task_id: str) -> Task:
         chain = self.engine.chains[task_id]
@@ -308,18 +257,12 @@ class TaskRegistry:
     def derive_task_status(self, chain: EventChain) -> TaskStatus:
         return derive_task_status(chain.events)
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     def _append(self, task_id: str, et: EventType, actor: str, payload: dict[str, Any]) -> Event:
         event = Event(concept_id=task_id, event_type=et, actor=actor, payload=payload)
         self.engine.chains[task_id].append(event)
         return event
 
     def _guard_transition(self, task_id: str, to: TaskStatus) -> None:
-        """Reject transitions not allowed by _TASK_TRANSITIONS from the
-        CURRENT derived status. Rejected transitions never append events."""
         chain = self.engine.chains.get(task_id)
         if chain is None:
             raise ADLConsensusError(f"unknown task: {task_id}")

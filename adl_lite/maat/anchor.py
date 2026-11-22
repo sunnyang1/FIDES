@@ -1,7 +1,7 @@
-"""Maat-style versioned workflow anchor for ADL Lite.
+"""AnchorSpec + AnchorChain — versioned governance contract (Maat-inspired).
 
-An *anchor* is the explicit, versioned contract a task workflow is authorized
-to preserve or obey: which roles may hand off, which resources are shared,
+The AnchorSpec is the deterministic constitution of the task control plane:
+which gates are enforced, which payload fields are required, which resources are shared,
 when a rework loop must be escalated. Inspired by Maat (arXiv:2609.34017) —
 the validation path is deterministic and contains no LLM — with one lesson
 from that paper baked into the design: the anchor itself is part of the
@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -33,7 +33,7 @@ class AnchorSpec(BaseModel):
     anchor_id: str = "adl-task-governance"
     version: int = 1
     created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
     # Gate switches — deterministic, no LLM in the validation path.
@@ -97,7 +97,7 @@ class AnchorChain:
             "version": spec.version,
             "anchor_hash": spec.anchor_hash(),
             "actor": actor,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": datetime.now(UTC).isoformat(),
         }
         prev = self.revisions[-1]["chain_hash"] if self.revisions else ""
         entry["chain_hash"] = self._hash(entry, prev)
@@ -130,7 +130,7 @@ class AnchorChain:
             "anchor_id": self.anchor_id,
             "event": deepcopy(event),
             "actor": actor,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": datetime.now(UTC).isoformat(),
         }
         prev = self.revisions[-1]["chain_hash"] if self.revisions else ""
         entry["chain_hash"] = self._hash(entry, prev)

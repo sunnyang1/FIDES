@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -49,7 +49,7 @@ class SignedApproval:
     did: str
     signature: str            # hex Ed25519 signature over the domain payload
     payload_hash: str         # sha256 of the canonical domain payload
-    at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def verify(self, public_key: Ed25519PublicKey, domain: dict) -> bool:
         """Re-derive the exact payload that was signed and check both the
