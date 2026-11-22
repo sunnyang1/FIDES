@@ -415,6 +415,22 @@ def _hs4_base_engine(key_ring: KeyRing | None = None,
         key_ring=key_ring, anchor_chain=anchor_chain, budget=10, **kw)
 
 
+class _HeldOutFailureRunner(SandboxRunner):
+    """Inject one infrastructure failure only during candidate held-out execution."""
+
+    def __init__(self, candidate_source: str):
+        super().__init__()
+        self.candidate_source = candidate_source
+        self.should_fail = True
+
+    def run_planner(self, source: str, traces: list[TaskTrace]) -> dict:
+        if (self.should_fail and source == self.candidate_source
+                and len(traces) > len(PUBLIC)):
+            self.should_fail = False
+            raise SandboxError("injected held-out execution failure")
+        return super().run_planner(source, traces)
+
+
 class TestEngineLifecycle:
     def test_honest_improvement_accepted_and_anchored(self):
         ring = governance_ring()
@@ -452,6 +468,16 @@ class TestEngineLifecycle:
         assert anchor.verify()
         events = [e for e in anchor.revisions if "event" in e]
         assert events[-1]["event"]["data"]["route"] == "board"
+
+    def test_anchor_chain_linkage_tampering_invalidates_audit(self):
+        anchor = AnchorChain("code-evolution")
+        engine = _hs4_base_engine(anchor_chain=anchor)
+        assert engine.verify_audit_chain()
+
+        anchor.revisions[0]["chain_hash"] = "0" * 64
+
+        assert not anchor.verify()
+        assert not engine.verify_audit_chain()
 
     def test_never_escalator_rejected(self):
         ring = governance_ring()
@@ -503,6 +529,32 @@ class TestEngineLifecycle:
         with pytest.raises(ValueError, match="crashed"):
             engine.accept(bomb, card, actor="did:key:zOps")
         assert runner.runs == runs_before + 1
+
+    def test_held_out_sandbox_failure_rejects_and_reseals_for_retry(self):
+        ring = governance_ring()
+        source = make_hard_stop_source(3)
+        runner = _HeldOutFailureRunner(source)
+        anchor = AnchorChain("code-evolution")
+        engine = _hs4_base_engine(key_ring=ring, anchor_chain=anchor, runner=runner)
+        candidate = CodeCandidate("hs3", 2, LOW_PLUGIN_DIFF, source)
+        card = engine.evaluate(candidate)
+        signatures = approve(ring, ["did:key:zBoard1"], engine, candidate, card)
+
+        with pytest.raises(ValueError, match="held-out execution failed"):
+            engine.accept(candidate, card, actor="did:key:zOps",
+                          signatures=signatures)
+
+        assert not engine.bench.revealed
+        assert engine.verify_audit_chain()
+        assert engine.audit_log[-1]["data"]["reason"] == "held-out execution failed"
+
+        card = engine.evaluate(candidate)
+        signatures = approve(ring, ["did:key:zBoard1"], engine, candidate, card)
+        route = engine.accept(candidate, card, actor="did:key:zOps",
+                              signatures=signatures)
+        assert route == "board"
+        assert card.accepted
+        assert not engine.bench.revealed
 
     # -- C2: executed routing ------------------------------------------------
 
