@@ -60,7 +60,8 @@ def _canon(obj: dict) -> bytes:
 # Candidate protocol: a planner module defines plan(trace: dict) -> list[str]
 # ---------------------------------------------------------------------------
 
-REFERENCE_PLANNER_SOURCE = '\n"""Reference planner: escalate once rework loops reach HARD_STOP."""
+REFERENCE_PLANNER_SOURCE = '''
+"""Reference planner: escalate once rework loops reach HARD_STOP."""
 HARD_STOP = 3
 
 
@@ -81,7 +82,7 @@ def plan(trace):
                 actions.append("ESCALATE")
             actions.append(s["actor"])
     return actions
-'
+'''
 
 
 def make_hard_stop_source(hard_stop: int) -> str:

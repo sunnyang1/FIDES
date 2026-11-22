@@ -1,7 +1,7 @@
-"""AnchorSpec + AnchorChain — versioned governance contract (Maat-inspired).
+"""Maat-style versioned workflow anchor for ADL Lite.
 
-The AnchorSpec is the deterministic constitution of the task control plane:
-which gates are enforced, which payload fields are required, which resources are shared,
+An *anchor* is the explicit, versioned contract a task workflow is authorized
+to preserve or obey: which roles may hand off, which resources are shared,
 when a rework loop must be escalated. Inspired by Maat (arXiv:2609.34017) —
 the validation path is deterministic and contains no LLM — with one lesson
 from that paper baked into the design: the anchor itself is part of the
